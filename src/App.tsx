@@ -5,8 +5,10 @@ import GalleryPage from "./components/GalleryPage";
 import CountriesPage from "./components/CountriesPage";
 import CountryDetailPage from "./components/CountryDetailPage";
 import QuizPage from "./components/QuizPage";
+import SettingsPage from "./components/SettingsPage";
 import { FirebaseProvider } from "./components/FirebaseProvider";
 import { ThemeProvider } from "./components/ThemeProvider";
+import { AutoScrollProvider } from "./components/AutoScrollProvider";
 import ErrorBoundary from "./components/ErrorBoundary";
 import BackgroundPattern from "./components/BackgroundPattern";
 import GlobalControls from "./components/GlobalControls";
@@ -25,7 +27,8 @@ export default function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider>
-        <FirebaseProvider>
+        <AutoScrollProvider>
+          <FirebaseProvider>
           <div 
             id="app-root" 
             className={`bg-[#f8f9fa] dark:bg-[#0f1115] text-[#212529] dark:text-[#f8f9fa] font-sans transition-colors duration-300 relative ${isMobile ? 'h-full overflow-y-auto mobile-scrollbar' : 'min-h-screen'}`}
@@ -46,12 +49,14 @@ export default function App() {
                     <Route path="/countries" element={<CountriesPage />} />
                     <Route path="/countries/:countryName" element={<CountryDetailPage />} />
                     <Route path="/quiz" element={<QuizPage />} />
+                    <Route path="/settings" element={<SettingsPage />} />
                   </Routes>
                 </NavigationLayout>
               </Router>
             </div>
           </div>
-        </FirebaseProvider>
+          </FirebaseProvider>
+        </AutoScrollProvider>
       </ThemeProvider>
     </ErrorBoundary>
   );

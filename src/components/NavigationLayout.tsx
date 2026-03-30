@@ -12,7 +12,8 @@ const MAIN_PAGES = [
   '/flowers',
   '/sports',
   '/quiz',
-  '/countries'
+  '/countries',
+  '/settings'
 ];
 
 const sortedCountries = [...countries].sort((a, b) => a.name.localeCompare(b.name));
@@ -79,9 +80,9 @@ export default function NavigationLayout({ children }: NavigationLayoutProps) {
         };
       }
 
-      if (path === '/countries') {
+      if (path === '/countries' || path === '/settings') {
         return {
-          prev: '/', // Rule 5: Search country page previous goes to Landing Page
+          prev: '/', // Rule 5: Search country page and Settings page previous goes to Landing Page
           next: null,
           label: null
         };

@@ -6,6 +6,7 @@ import { countries } from "../data/countries";
 export default function LandingPage() {
   const sortedCountries = [...countries].sort((a, b) => a.name.localeCompare(b.name));
   const firstCountry = sortedCountries[0];
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 md:p-8">
       <header className="max-w-4xl mx-auto mb-6 md:mb-8 text-center">
@@ -23,7 +24,7 @@ export default function LandingPage() {
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.25 }}
-        className="mb-10 md:mb-12 w-full max-w-xs md:max-w-none flex justify-center items-center gap-4"
+        className="mb-8 w-full max-w-xs md:max-w-none flex justify-center items-center gap-4"
       >
         <Link
           to={`/countries/${firstCountry.name}`}

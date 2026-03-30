@@ -6,10 +6,12 @@ import { countries } from "../data/countries";
 import { db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import InteractiveMap from './InteractiveMap';
+import { useAutoScroll } from './AutoScrollProvider';
 
 export default function CountryDetailPage() {
   const { countryName } = useParams<{ countryName: string }>();
   const navigate = useNavigate();
+  const { autoScrollEnabled, setAutoScrollEnabled, autoScrollDelay } = useAutoScroll();
   const [loading, setLoading] = useState(true);
   const [countryImages, setCountryImages] = useState<{ [key: string]: string }>({});
   const [isoCode, setIsoCode] = useState<string | null>(null);
@@ -26,6 +28,23 @@ export default function CountryDetailPage() {
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [countryName]);
+
+  // Auto-scroll logic
+  useEffect(() => {
+    if (!autoScrollEnabled) return;
+
+    const interval = setInterval(() => {
+      if (nextCountry) {
+        navigate(`/countries/${nextCountry.name}`);
+      } else {
+        // Stop auto-scroll and go to landing page
+        setAutoScrollEnabled(false);
+        navigate('/');
+      }
+    }, autoScrollDelay);
+
+    return () => clearInterval(interval);
+  }, [autoScrollEnabled, autoScrollDelay, nextCountry, navigate, setAutoScrollEnabled]);
 
   useEffect(() => {
     if (!country) {
@@ -112,9 +131,11 @@ export default function CountryDetailPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.1 }}
-              className="inline-block px-4 py-1.5 rounded-full border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#1a1d23] text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 dark:text-gray-400 shadow-sm"
+              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#1a1d23] text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 dark:text-gray-400 shadow-sm"
             >
-              {continent || 'National Heritage Profile'}
+              <span>{continent || 'National Heritage Profile'}</span>
+              <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-700"></span>
+              <span>{currentIndex + 1} of {sortedCountries.length}</span>
             </motion.div>
           </div>
 

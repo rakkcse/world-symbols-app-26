@@ -1,7 +1,7 @@
 import { useState, ChangeEvent, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from "motion/react";
 import { Loader2, Image as ImageIcon, PawPrint, Upload, Trash2, ArrowLeft, Flag, Banknote, Flower2, LogIn, LogOut, Trophy, Landmark, Search, ChevronLeft, ChevronRight } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { countries } from "../data/countries";
 import { useFirebase } from './FirebaseProvider';
 import { doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore';
@@ -9,6 +9,7 @@ import { db } from '../firebase';
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 import { compressImage } from '../lib/image-utils';
 import { useNavigation } from './NavigationLayout';
+import { useAutoScroll } from './AutoScrollProvider';
 
 interface GalleryPageProps {
   type: 'animals' | 'flags' | 'currencies' | 'flowers' | 'sports' | 'capitals';
@@ -52,8 +53,10 @@ const SearchInput = ({
 );
 
 export default function GalleryPage({ type }: GalleryPageProps) {
+  const navigate = useNavigate();
   const { user, loading: authLoading, signIn, logout } = useFirebase();
   const { setCustomHandlers } = useNavigation();
+  const { autoScrollEnabled, setAutoScrollEnabled, autoScrollDelay } = useAutoScroll();
   const [images, setImages] = useState<{ [key: string]: string }>({});
   const [uploading, setUploading] = useState(false);
   const [selectedLetter, setSelectedLetter] = useState<string | null>("#");
@@ -157,6 +160,25 @@ export default function GalleryPage({ type }: GalleryPageProps) {
   const paginatedCountries = selectedLetter === "#" 
     ? filteredCountries.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
     : filteredCountries;
+
+  // Auto-scroll logic
+  useEffect(() => {
+    if (!autoScrollEnabled || selectedLetter !== "#") return;
+
+    const interval = setInterval(() => {
+      setCurrentPage(prev => {
+        if (prev < totalPages) {
+          return prev + 1;
+        }
+        // Stop auto-scroll and go to landing page
+        setAutoScrollEnabled(false);
+        navigate('/');
+        return prev;
+      });
+    }, autoScrollDelay);
+
+    return () => clearInterval(interval);
+  }, [autoScrollEnabled, autoScrollDelay, selectedLetter, totalPages, navigate, setAutoScrollEnabled]);
 
   const [gridConfig, setGridConfig] = useState<{ cols: number; rows: number }>(() => {
     try {
