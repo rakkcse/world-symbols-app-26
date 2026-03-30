@@ -1,0 +1,87 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: global_collections
+    // Document ID: {type}
+    // Fields:
+    //   - type: string (required) - The category (animals, flags, currencies, flowers).
+    //   - images: map (required) - Country name to base64 string.
+    //   - updatedAt: timestamp (optional) - Last update time.
+    //   - lastUpdatedBy: string (optional) - The user's unique ID.
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+          (request.auth.token.email == "rakkcse@gmail.com" && request.auth.token.email_verified == true)
+        );
+    }
+
+    function isValidGlobalCollection(data) {
+      return data.keys().hasAll(['type', 'images']) &&
+             data.type is string &&
+             data.images is map &&
+             data.images.size() <= 300 &&
+             (!('updatedAt' in data) || data.updatedAt is timestamp) &&
+             (!('lastUpdatedBy' in data) || data.lastUpdatedBy is string);
+    }
+
+    function isValidCollection(data) {
+      return data.keys().hasAll(['uid', 'type', 'images']) &&
+             data.uid is string &&
+             data.type is string &&
+             data.images is map &&
+             data.images.size() <= 300;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role']) &&
+             data.uid is string &&
+             data.email is string &&
+             data.role in ['admin', 'user'];
+    }
+
+    match /global_collections/{type} {
+      allow read: if true;
+      allow write: if isValidGlobalCollection(request.resource.data);
+    }
+
+    match /collections/{collectionId} {
+      allow read: if isAuthenticated() && (isOwner(resource.data.uid) || isAdmin());
+      
+      allow create: if isAuthenticated() && 
+                      isOwner(request.resource.data.uid) && 
+                      isValidCollection(request.resource.data);
+                      
+      allow update: if isAuthenticated() && 
+                      isOwner(resource.data.uid) && 
+                      isValidCollection(request.resource.data) &&
+                      request.resource.data.uid == resource.data.uid &&
+                      request.resource.data.type == resource.data.type;
+                      
+      allow delete: if isAuthenticated() && (isOwner(resource.data.uid) || isAdmin());
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role == 'user';
+      allow update: if isAuthenticated() && (isAdmin() || (isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role == resource.data.role));
+    }
+  }
+}

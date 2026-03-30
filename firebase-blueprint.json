@@ -1,0 +1,55 @@
+{
+  "entities": {
+    "GlobalCollection": {
+      "title": "Global Collection",
+      "description": "Stores shared uploaded images for different heritage categories.",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["animals", "flags", "currencies", "flowers"], "description": "The category of the collection." },
+        "images": { "type": "object", "description": "A map of country names to base64 image data." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp." },
+        "lastUpdatedBy": { "type": "string", "description": "The UID of the last user who updated the collection." }
+      },
+      "required": ["type", "images"]
+    },
+    "UserCollection": {
+      "title": "User Collection",
+      "description": "Stores a user's uploaded images for different heritage categories.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The user's unique ID." },
+        "type": { "type": "string", "enum": ["animals", "flags", "currencies", "flowers"], "description": "The category of the collection." },
+        "images": { "type": "object", "description": "A map of country names to base64 image data." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp." }
+      },
+      "required": ["uid", "type", "images"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User profile and roles.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    }
+  },
+  "firestore": {
+    "/global_collections/{type}": {
+      "schema": "GlobalCollection",
+      "description": "Shared collection of heritage items."
+    },
+    "/collections/{collectionId}": {
+      "schema": "UserCollection",
+      "description": "Collection of user-specific heritage items."
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles."
+    }
+  }
+}

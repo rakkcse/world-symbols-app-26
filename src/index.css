@@ -1,0 +1,133 @@
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Dark mode for Leaflet tiles */
+.dark .leaflet-tile-pane {
+  filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+}
+
+.dark .leaflet-container {
+  background: #0f1115;
+}
+
+/* Custom Leaflet Popup Styling */
+.custom-popup .leaflet-popup-content-wrapper {
+  background: white;
+  color: #1f2937;
+  border-radius: 1rem;
+  padding: 0;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  border: 1px solid #f3f4f6;
+}
+
+.dark .custom-popup .leaflet-popup-content-wrapper {
+  background: #1a1d23;
+  color: #f3f4f6;
+  border: 1px solid #1f2937;
+}
+
+.custom-popup .leaflet-popup-content {
+  margin: 12px;
+}
+
+.custom-popup .leaflet-popup-tip {
+  background: white;
+}
+
+.dark .custom-popup .leaflet-popup-tip {
+  background: #1a1d23;
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  /* Mobile lightweight scrollbar */
+  @media (max-width: 1280px) {
+    html, body, #root {
+      height: 100%;
+      overflow: hidden;
+      width: 100%;
+    }
+
+    .mobile-scrollbar {
+      overflow-y: auto !important;
+      overflow-x: hidden !important;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(156, 163, 175, 0.6) transparent;
+    }
+
+    .mobile-scrollbar::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+      display: block !important;
+    }
+
+    .mobile-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .mobile-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(156, 163, 175, 0.8);
+      border-radius: 20px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+  }
+}
+
+/* Mobile Gallery Layout Refinements */
+@media (max-width: 1280px) {
+  .gallery-header-responsive {
+    flex-direction: column !important;
+    gap: 1rem !important;
+  }
+
+  .gallery-search-section {
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+  }
+
+  .gallery-alphabet-container {
+    border-left: none !important;
+    padding-left: 0 !important;
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.25rem !important;
+  }
+
+  .gallery-alphabet-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    gap: 0.125rem !important;
+    min-width: 0 !important;
+  }
+
+  .gallery-stats-desktop {
+    display: none !important;
+  }
+
+  .gallery-stats-mobile {
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.75rem !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  .gallery-stats-mobile {
+    display: none !important;
+  }
+}
