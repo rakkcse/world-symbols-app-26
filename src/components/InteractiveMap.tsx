@@ -30,26 +30,58 @@ interface InteractiveMapProps {
   mini?: boolean;
 }
 
-function ChangeView({ center, mini }: { center: [number, number], mini?: boolean }) {
+function MapController({ center, geoJson, mini }: { center: [number, number], geoJson: any, mini?: boolean }) {
   const map = useMap();
+  
   useEffect(() => {
-    map.setView(center, mini ? 4 : 5);
-  }, [center, map, mini]);
+    if (geoJson) {
+      try {
+        const layer = L.geoJSON(geoJson);
+        const bounds = layer.getBounds();
+        if (bounds.isValid()) {
+          map.fitBounds(bounds, { 
+            padding: [30, 30], 
+            animate: true, 
+            duration: 1.5,
+            easeLinearity: 0.25
+          });
+        }
+      } catch (e) {
+        console.error("Error fitting bounds:", e);
+        map.setView(center, mini ? 4 : 5, { animate: true, duration: 1.5 });
+      }
+    } else {
+      map.setView(center, mini ? 4 : 5, { animate: true, duration: 1.5 });
+    }
+  }, [center, geoJson, map, mini]);
+
   return null;
 }
 
 export default function InteractiveMap({ center, countryName, capital, isoCode, mini = false }: InteractiveMapProps) {
   const { theme } = useTheme();
   const [geoJson, setGeoJson] = useState<any>(null);
+  const [isFetching, setIsFetching] = useState(false);
 
   useEffect(() => {
-    if (!countryName || mini) return;
+    if (!countryName || mini) {
+      setGeoJson(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    const signal = controller.signal;
 
     const fetchGeoJson = async () => {
+      setIsFetching(true);
+      setGeoJson(null); // Clear previous boundary immediately
+      
       try {
-        // Use isoCode if available for more reliable country lookup
+        // Try to find by ISO code first as it's more precise
         const query = isoCode ? `country=${isoCode}` : `q=${encodeURIComponent(countryName)}`;
-        const response = await fetch(`https://nominatim.openstreetmap.org/search?${query}&polygon_geojson=1&format=json&limit=1&featuretype=country`);
+        const url = `https://nominatim.openstreetmap.org/search?${query}&polygon_geojson=1&format=json&limit=1&featuretype=country`;
+        
+        const response = await fetch(url, { signal });
         
         if (!response.ok) {
           if (response.status === 429) {
@@ -59,17 +91,27 @@ export default function InteractiveMap({ center, countryName, capital, isoCode, 
         }
 
         const data = await response.json();
-        if (data && data[0] && data[0].geojson) {
+        if (!signal.aborted && data && data[0] && data[0].geojson) {
           setGeoJson(data[0].geojson);
         }
-      } catch (error) {
-        // Gracefully handle fetch failures (e.g. CORS, network issues)
-        // We log as a warning because the map still works without boundaries
-        console.warn("Optional country boundaries could not be loaded:", error);
+      } catch (error: any) {
+        if (error.name !== 'AbortError') {
+          console.warn("Optional country boundaries could not be loaded:", error);
+        }
+      } finally {
+        if (!signal.aborted) {
+          setIsFetching(false);
+        }
       }
     };
 
-    fetchGeoJson();
+    // Add a small delay to prevent rapid-fire requests to Nominatim during fast navigation
+    const timeoutId = setTimeout(fetchGeoJson, 300);
+
+    return () => {
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
   }, [countryName, isoCode, mini]);
 
   const tileUrl = theme === 'dark' 
@@ -120,7 +162,7 @@ export default function InteractiveMap({ center, countryName, capital, isoCode, 
             </Popup>
           )}
         </Marker>
-        <ChangeView center={center} mini={mini} />
+        <MapController center={center} geoJson={geoJson} mini={mini} />
       </MapContainer>
     </div>
   );

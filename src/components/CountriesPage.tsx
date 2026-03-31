@@ -1,11 +1,25 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from "motion/react";
-import { ArrowLeft, Globe2, Search } from "lucide-react";
+import { ArrowLeft, Globe2, Search, History } from "lucide-react";
 import { Link } from "react-router-dom";
 import { countries } from "../data/countries";
 
 export default function CountriesPage() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [history, setHistory] = useState<string[]>([]);
+
+  useEffect(() => {
+    const savedHistory = localStorage.getItem('country_search_history');
+    if (savedHistory) {
+      setHistory(JSON.parse(savedHistory));
+    }
+  }, []);
+
+  const addToHistory = (countryName: string) => {
+    const newHistory = [countryName, ...history.filter(c => c !== countryName)].slice(0, 3);
+    setHistory(newHistory);
+    localStorage.setItem('country_search_history', JSON.stringify(newHistory));
+  };
 
   const filteredCountries = countries.filter(country =>
     country.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -48,6 +62,28 @@ export default function CountriesPage() {
               />
             </div>
           </div>
+
+          {/* Search History */}
+          {history.length > 0 && (
+            <div className="max-w-2xl mx-auto px-4 mb-8">
+              <div className="flex items-center gap-2 mb-3 text-gray-500 dark:text-gray-400">
+                <History className="w-4 h-4" />
+                <span className="text-xs font-bold uppercase tracking-widest">Recent Searches</span>
+              </div>
+              <div className="flex flex-wrap justify-center gap-2">
+                {history.map(countryName => (
+                  <Link
+                    key={countryName}
+                    to={`/countries/${countryName}`}
+                    onClick={() => addToHistory(countryName)}
+                    className="px-4 py-2 bg-white dark:bg-[#1a1d23] border border-gray-100 dark:border-gray-800 rounded-xl text-sm font-medium hover:border-blue-200 dark:hover:border-blue-900 transition-all shadow-sm"
+                  >
+                    {countryName}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </header>
 
@@ -95,6 +131,7 @@ export default function CountriesPage() {
                   >
                     <Link 
                       to={`/countries/${country.name}`}
+                      onClick={() => addToHistory(country.name)}
                       className="block bg-white dark:bg-[#1a1d23] p-4 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-all hover:border-blue-200 dark:hover:border-blue-900"
                     >
                       <h3 className="font-bold text-lg">{country.name}</h3>

@@ -52,18 +52,24 @@ export default function CountryDetailPage() {
       return;
     }
 
+    const controller = new AbortController();
+    const signal = controller.signal;
+
     const fetchImages = async () => {
       setLoading(true);
+      setIsoCode(null);
+      setCoordinates(null);
+      setContinent(null);
       const categories = ['capitals', 'flags', 'currencies', 'animals', 'flowers', 'sports'];
       const images: { [key: string]: string } = {};
 
       try {
         // Fetch ISO code and continent for map
         try {
-          const restRes = await fetch(`https://restcountries.com/v3.1/name/${encodeURIComponent(country.name)}?fullText=true`);
+          const restRes = await fetch(`https://restcountries.com/v3.1/name/${encodeURIComponent(country.name)}?fullText=true`, { signal });
           if (restRes.ok) {
             const restData = await restRes.json();
-            if (restData && restData[0]) {
+            if (!signal.aborted && restData && restData[0]) {
               if (restData[0].cca2) {
                 setIsoCode(restData[0].cca2.toLowerCase());
               }
@@ -75,29 +81,41 @@ export default function CountryDetailPage() {
               }
             }
           }
-        } catch (mapInfoError) {
-          console.warn("Could not fetch additional map information:", mapInfoError);
+        } catch (mapInfoError: any) {
+          if (mapInfoError.name !== 'AbortError') {
+            console.warn("Could not fetch additional map information:", mapInfoError);
+          }
         }
+
+        if (signal.aborted) return;
 
         await Promise.all(categories.map(async (category) => {
           const docRef = doc(db, 'global_collections', category);
           const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
+          if (!signal.aborted && docSnap.exists()) {
             const data = docSnap.data();
             if (data.images && data.images[country.name]) {
               images[category] = data.images[country.name];
             }
           }
         }));
-        setCountryImages(images);
-      } catch (error) {
-        console.error("Error fetching country images:", error);
+        
+        if (!signal.aborted) {
+          setCountryImages(images);
+        }
+      } catch (error: any) {
+        if (error.name !== 'AbortError') {
+          console.error("Error fetching country images:", error);
+        }
       } finally {
-        setLoading(false);
+        if (!signal.aborted) {
+          setLoading(false);
+        }
       }
     };
 
     fetchImages();
+    return () => controller.abort();
   }, [country, navigate]);
 
   if (!country) return null;
@@ -191,8 +209,8 @@ export default function CountryDetailPage() {
                 <div className="p-4">
                   <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-1">{cat.label}</h3>
                   <div className="flex flex-wrap gap-1">
-                    {cat.items.map(item => (
-                      <span key={item} className={`px-2 py-0.5 bg-${cat.color}-50 dark:bg-${cat.color}-900/10 text-${cat.color}-600 dark:text-${cat.color}-400 rounded-full text-base font-bold border border-${cat.color}-100 dark:border-${cat.color}-900/30`}>
+                    {cat.items.map((item, idx) => (
+                      <span key={`${item}-${idx}`} className={`px-2 py-0.5 bg-${cat.color}-50 dark:bg-${cat.color}-900/10 text-${cat.color}-600 dark:text-${cat.color}-400 rounded-full text-base font-bold border border-${cat.color}-100 dark:border-${cat.color}-900/30`}>
                         {item}
                       </span>
                     ))}

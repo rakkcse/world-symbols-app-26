@@ -2,6 +2,7 @@ import React, { useMemo, useEffect, createContext, useContext, useState, useCall
 import { useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { countries } from "../data/countries";
+import { useSound } from "./SoundProvider";
 
 const MAIN_PAGES = [
   '/',
@@ -39,6 +40,7 @@ export default function NavigationLayout({ children }: NavigationLayoutProps) {
   const location = useLocation();
   const [customHandlers, setCustomHandlersState] = useState<{ onNext?: () => boolean; onBack?: () => boolean } | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const { playSound } = useSound();
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth <= 1280);
@@ -46,6 +48,25 @@ export default function NavigationLayout({ children }: NavigationLayoutProps) {
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+
+  useEffect(() => {
+    const path = location.pathname;
+    let type: string = 'default';
+    
+    if (path.includes('/animals')) type = 'animals';
+    else if (path.includes('/flags')) type = 'flags';
+    else if (path.includes('/capitals')) type = 'capitals';
+    else if (path.includes('/currencies')) type = 'currencies';
+    else if (path.includes('/flowers')) type = 'flowers';
+    else if (path.includes('/sports')) type = 'sports';
+    else if (path.includes('/quiz')) type = 'quiz';
+    else if (path.includes('/settings')) type = 'settings';
+    else if (path === '/countries') type = 'search';
+    else if (path.startsWith('/countries/')) type = 'countries';
+    
+    console.log(`Navigation to ${path}, sound type: ${type}`);
+    playSound(type);
+  }, [location.pathname, playSound]);
 
   const setCustomHandlers = useCallback((handlers: { onNext?: () => boolean; onBack?: () => boolean } | null) => {
     setCustomHandlersState(handlers);

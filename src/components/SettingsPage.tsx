@@ -1,14 +1,16 @@
 import { useEffect } from "react";
 import { motion } from "motion/react";
-import { Moon, Sun, Play, Pause, Clock, Settings } from "lucide-react";
+import { Moon, Sun, Play, Pause, Clock, Settings, Volume2, VolumeX } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "./ThemeProvider";
 import { useAutoScroll } from "./AutoScrollProvider";
+import { useSound } from "./SoundProvider";
 
 export default function SettingsPage() {
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
   const { autoScrollEnabled, setAutoScrollEnabled, autoScrollDelay, setAutoScrollDelay } = useAutoScroll();
+  const { soundEnabled, setSoundEnabled } = useSound();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -60,11 +62,35 @@ export default function SettingsPage() {
           </button>
         </motion.div>
 
-        {/* Auto Scroll Controls */}
+        {/* Sound Toggle */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
+          className="bg-white dark:bg-[#1a1d23] p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center justify-between"
+        >
+          <div>
+            <h2 className="text-lg font-bold mb-1">Sound Effects</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Enable or disable page transition sounds</p>
+          </div>
+          <button
+            onClick={() => setSoundEnabled(!soundEnabled)}
+            className={`p-3 rounded-xl transition-all ${
+              soundEnabled 
+                ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' 
+                : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+            }`}
+            aria-label={soundEnabled ? 'Turn off sound' : 'Turn on sound'}
+          >
+            {soundEnabled ? <Volume2 className="w-6 h-6" /> : <VolumeX className="w-6 h-6" />}
+          </button>
+        </motion.div>
+
+        {/* Auto Scroll Controls */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
           className="bg-white dark:bg-[#1a1d23] p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center justify-between"
         >
           <div>

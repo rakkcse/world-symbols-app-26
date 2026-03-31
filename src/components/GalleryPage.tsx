@@ -10,6 +10,7 @@ import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 import { compressImage } from '../lib/image-utils';
 import { useNavigation } from './NavigationLayout';
 import { useAutoScroll } from './AutoScrollProvider';
+import { useSound } from './SoundProvider';
 
 interface GalleryPageProps {
   type: 'animals' | 'flags' | 'currencies' | 'flowers' | 'sports' | 'capitals';
@@ -56,6 +57,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
   const navigate = useNavigate();
   const { user, loading: authLoading, signIn, logout } = useFirebase();
   const { setCustomHandlers } = useNavigation();
+  const { playSound } = useSound();
   const { autoScrollEnabled, setAutoScrollEnabled, autoScrollDelay } = useAutoScroll();
   const [images, setImages] = useState<{ [key: string]: string }>({});
   const [uploading, setUploading] = useState(false);
@@ -249,6 +251,11 @@ export default function GalleryPage({ type }: GalleryPageProps) {
     window.addEventListener('resize', updateGridConfig);
     return () => window.removeEventListener('resize', updateGridConfig);
   }, [updateGridConfig]);
+
+  // Play sound on internal transitions
+  useEffect(() => {
+    playSound(type);
+  }, [currentPage, selectedLetter, type, playSound]);
 
   // Custom navigation for pagination and alphabetical groups
   useEffect(() => {
