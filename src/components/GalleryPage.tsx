@@ -57,7 +57,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
   const navigate = useNavigate();
   const { user, loading: authLoading, signIn, logout } = useFirebase();
   const { setCustomHandlers } = useNavigation();
-  const { playSound } = useSound();
+  const { playSound, narrationEnabled } = useSound();
   const { autoScrollEnabled, setAutoScrollEnabled, autoScrollDelay } = useAutoScroll();
   const [images, setImages] = useState<{ [key: string]: string }>({});
   const [uploading, setUploading] = useState(false);
@@ -163,9 +163,14 @@ export default function GalleryPage({ type }: GalleryPageProps) {
     ? filteredCountries.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
     : filteredCountries;
 
-  // Auto-scroll logic
+  const autoScrollRef = useRef(autoScrollEnabled);
   useEffect(() => {
-    if (!autoScrollEnabled || selectedLetter !== "#") return;
+    autoScrollRef.current = autoScrollEnabled;
+  }, [autoScrollEnabled]);
+
+  // Auto-scroll logic (when narration is disabled)
+  useEffect(() => {
+    if (!autoScrollEnabled || narrationEnabled || selectedLetter !== "#") return;
 
     const interval = setInterval(() => {
       setCurrentPage(prev => {
@@ -180,7 +185,131 @@ export default function GalleryPage({ type }: GalleryPageProps) {
     }, autoScrollDelay);
 
     return () => clearInterval(interval);
-  }, [autoScrollEnabled, autoScrollDelay, selectedLetter, totalPages, navigate, setAutoScrollEnabled]);
+  }, [autoScrollEnabled, autoScrollDelay, selectedLetter, totalPages, navigate, setAutoScrollEnabled, narrationEnabled]);
+
+  // Narration logic
+  useEffect(() => {
+    if (!narrationEnabled || type === 'flags') return;
+
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    const formatList = (list: string[]) => {
+      if (!list || list.length === 0) return '';
+      if (list.length === 1) return list[0];
+      return `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
+    };
+
+    const getCountryNarration = (c: any) => {
+      switch (type) {
+        case 'capitals':
+          return c.capital ? `${c.name}: ${c.capital}` : c.name;
+        case 'currencies':
+          return c.currencies?.length ? `${c.name}: ${formatList(c.currencies)}` : c.name;
+        case 'flowers':
+          return c.flowers?.length ? `${c.name}: ${formatList(c.flowers)}` : c.name;
+        case 'sports':
+          return c.sports?.length ? `${c.name}: ${formatList(c.sports)}` : c.name;
+        case 'animals': {
+          const parts = [];
+          if (c.animals?.length) parts.push(`National animal: ${formatList(c.animals)}`);
+          if (c.birds?.length) parts.push(`National Bird: ${formatList(c.birds)}`);
+          if (parts.length === 0) return c.name;
+          return `${c.name}: ${parts.join(', ')}`;
+        }
+        default:
+          return c.name;
+      }
+    };
+
+    const speakText = (text: string, voice: SpeechSynthesisVoice | undefined) => {
+      return new Promise<void>((resolve) => {
+        if (signal.aborted) return resolve();
+        
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 0.70;
+        if (voice) utterance.voice = voice;
+
+        utterance.onend = () => resolve();
+        utterance.onerror = () => resolve();
+
+        signal.addEventListener('abort', () => {
+          window.speechSynthesis.cancel();
+          resolve();
+        });
+
+        window.speechSynthesis.speak(utterance);
+      });
+    };
+
+    const runNarration = async () => {
+      try {
+        window.speechSynthesis.cancel();
+        
+        await new Promise<void>((resolve) => {
+          const timeoutId = setTimeout(resolve, 100);
+          signal.addEventListener('abort', () => {
+            clearTimeout(timeoutId);
+            resolve();
+          });
+        });
+        
+        if (signal.aborted) return;
+
+        let voices = window.speechSynthesis.getVoices();
+        if (voices.length === 0) {
+          await new Promise<void>(resolve => {
+            window.speechSynthesis.onvoiceschanged = () => resolve();
+            const fallbackId = setTimeout(resolve, 100);
+            signal.addEventListener('abort', () => {
+              clearTimeout(fallbackId);
+              resolve();
+            });
+          });
+          voices = window.speechSynthesis.getVoices();
+        }
+        if (signal.aborted) return;
+
+        const engVoices = voices.filter(v => v.lang.startsWith('en'));
+
+        // 1. Header narration
+        if (currentPage === 1 && selectedLetter === "#") {
+           const headerText = `National ${type.charAt(0).toUpperCase() + type.slice(1)}`;
+           await speakText(headerText, engVoices.length > 0 ? engVoices[0] : undefined);
+        }
+
+        // 2. Iterate through paginatedCountries
+        for (let i = 0; i < paginatedCountries.length; i++) {
+          if (signal.aborted) break;
+          const c = paginatedCountries[i];
+          const text = getCountryNarration(c);
+          
+          // Alternate voices between each card
+          const voice = engVoices.length > 0 ? engVoices[i % engVoices.length] : undefined;
+          await speakText(text, voice);
+        }
+
+        // 3. Auto-scroll if enabled
+        if (!signal.aborted && autoScrollRef.current && selectedLetter === "#") {
+          if (currentPage < totalPages) {
+            setCurrentPage(prev => prev + 1);
+          } else {
+            setAutoScrollEnabled(false);
+            navigate('/');
+          }
+        }
+      } catch (err) {
+        // ignore
+      }
+    };
+
+    runNarration();
+
+    return () => {
+      controller.abort();
+      window.speechSynthesis.cancel();
+    };
+  }, [type, currentPage, selectedLetter, totalPages, narrationEnabled, navigate, setAutoScrollEnabled, searchQuery]);
 
   const [gridConfig, setGridConfig] = useState<{ cols: number; rows: number }>(() => {
     try {

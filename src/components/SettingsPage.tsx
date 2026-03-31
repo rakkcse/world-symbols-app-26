@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { motion } from "motion/react";
-import { Moon, Sun, Play, Pause, Clock, Settings, Volume2, VolumeX } from "lucide-react";
+import { Moon, Sun, Play, Pause, Clock, Settings, Volume2, VolumeX, Mic, MicOff } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "./ThemeProvider";
 import { useAutoScroll } from "./AutoScrollProvider";
@@ -10,7 +10,7 @@ export default function SettingsPage() {
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
   const { autoScrollEnabled, setAutoScrollEnabled, autoScrollDelay, setAutoScrollDelay } = useAutoScroll();
-  const { soundEnabled, setSoundEnabled } = useSound();
+  const { soundEnabled, setSoundEnabled, narrationEnabled, setNarrationEnabled } = useSound();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -83,6 +83,30 @@ export default function SettingsPage() {
             aria-label={soundEnabled ? 'Turn off sound' : 'Turn on sound'}
           >
             {soundEnabled ? <Volume2 className="w-6 h-6" /> : <VolumeX className="w-6 h-6" />}
+          </button>
+        </motion.div>
+
+        {/* Voice Narration Toggle */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+          className="bg-white dark:bg-[#1a1d23] p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center justify-between"
+        >
+          <div>
+            <h2 className="text-lg font-bold mb-1">Voice Narration</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Read country details aloud on page load</p>
+          </div>
+          <button
+            onClick={() => setNarrationEnabled(!narrationEnabled)}
+            className={`p-3 rounded-xl transition-all ${
+              narrationEnabled 
+                ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' 
+                : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+            }`}
+            aria-label={narrationEnabled ? 'Turn off narration' : 'Turn on narration'}
+          >
+            {narrationEnabled ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
           </button>
         </motion.div>
 

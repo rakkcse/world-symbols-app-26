@@ -3,6 +3,8 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 interface SoundContextType {
   soundEnabled: boolean;
   setSoundEnabled: (enabled: boolean) => void;
+  narrationEnabled: boolean;
+  setNarrationEnabled: (enabled: boolean) => void;
   playSound: (type: string) => void;
 }
 
@@ -36,6 +38,11 @@ export const SoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return saved !== null ? JSON.parse(saved) : true;
   });
 
+  const [narrationEnabled, setNarrationEnabled] = useState(() => {
+    const saved = localStorage.getItem('narrationEnabled');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
+
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
 
   // Preload sounds
@@ -52,6 +59,10 @@ export const SoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     localStorage.setItem('soundEnabled', JSON.stringify(soundEnabled));
   }, [soundEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem('narrationEnabled', JSON.stringify(narrationEnabled));
+  }, [narrationEnabled]);
 
   const playSound = useCallback((type: string) => {
     if (!soundEnabled) return;
@@ -84,7 +95,7 @@ export const SoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [soundEnabled]);
 
   return (
-    <SoundContext.Provider value={{ soundEnabled, setSoundEnabled, playSound }}>
+    <SoundContext.Provider value={{ soundEnabled, setSoundEnabled, narrationEnabled, setNarrationEnabled, playSound }}>
       {children}
     </SoundContext.Provider>
   );

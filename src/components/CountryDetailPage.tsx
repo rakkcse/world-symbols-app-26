@@ -1,18 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from "motion/react";
-import { Home, ArrowLeft, ArrowRight, PawPrint, Flag, Banknote, Flower2, Trophy, Loader2, Image as ImageIcon, Landmark, Map as MapIcon, MapPin } from "lucide-react";
+import { Home, ArrowLeft, ArrowRight, PawPrint, Flag, Banknote, Flower2, Trophy, Loader2, Image as ImageIcon, Landmark, Map as MapIcon, MapPin, Volume2 } from "lucide-react";
 import { countries } from "../data/countries";
 import { db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import InteractiveMap from './InteractiveMap';
 import { useAutoScroll } from './AutoScrollProvider';
+import { useSound } from './SoundProvider';
 
 export default function CountryDetailPage() {
   const { countryName } = useParams<{ countryName: string }>();
   const navigate = useNavigate();
   const { autoScrollEnabled, setAutoScrollEnabled, autoScrollDelay } = useAutoScroll();
+  const { narrationEnabled } = useSound();
   const [loading, setLoading] = useState(true);
+  const [isNarrating, setIsNarrating] = useState(false);
   const [countryImages, setCountryImages] = useState<{ [key: string]: string }>({});
   const [isoCode, setIsoCode] = useState<string | null>(null);
   const [coordinates, setCoordinates] = useState<[number, number] | null>(null);
@@ -29,9 +32,14 @@ export default function CountryDetailPage() {
     window.scrollTo(0, 0);
   }, [countryName]);
 
-  // Auto-scroll logic
+  const autoScrollRef = useRef(autoScrollEnabled);
   useEffect(() => {
-    if (!autoScrollEnabled) return;
+    autoScrollRef.current = autoScrollEnabled;
+  }, [autoScrollEnabled]);
+
+  // Auto-scroll logic (when narration is disabled)
+  useEffect(() => {
+    if (!autoScrollEnabled || narrationEnabled) return;
 
     const interval = setInterval(() => {
       if (nextCountry) {
@@ -44,7 +52,135 @@ export default function CountryDetailPage() {
     }, autoScrollDelay);
 
     return () => clearInterval(interval);
-  }, [autoScrollEnabled, autoScrollDelay, nextCountry, navigate, setAutoScrollEnabled]);
+  }, [autoScrollEnabled, autoScrollDelay, nextCountry, navigate, setAutoScrollEnabled, narrationEnabled]);
+
+  // Narration logic
+  useEffect(() => {
+    if (!country || !narrationEnabled) return;
+
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    const formatList = (list: string[]) => {
+      if (!list || list.length === 0) return '';
+      if (list.length === 1) return list[0];
+      return `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
+    };
+
+    const getNarrationText = (c: any) => {
+      const parts = [];
+      if (c.capital) parts.push(`Capital : ${c.capital}`);
+      if (c.currencies?.length) parts.push(`Currency : ${formatList(c.currencies)}`);
+      if (c.animals?.length) parts.push(`National Animal : ${formatList(c.animals)}`);
+      if (c.birds?.length) parts.push(`National Bird : ${formatList(c.birds)}`);
+      if (c.flowers?.length) parts.push(`National Flower : ${formatList(c.flowers)}`);
+      if (c.sports?.length) parts.push(`National Sport : ${formatList(c.sports)}`);
+      
+      if (parts.length === 0) return c.name;
+      if (parts.length === 1) return `${c.name}, ${parts[0]}`;
+      
+      const lastPart = parts.pop();
+      return `${c.name}, ${parts.join(', ')} and ${lastPart}`;
+    };
+
+    const speakText = (text: string, voice: SpeechSynthesisVoice | undefined) => {
+      return new Promise<void>((resolve) => {
+        if (signal.aborted) return resolve();
+        
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 0.70;
+        if (voice) utterance.voice = voice;
+
+        utterance.onend = () => resolve();
+        utterance.onerror = () => resolve();
+
+        signal.addEventListener('abort', () => {
+          window.speechSynthesis.cancel();
+          resolve();
+        });
+
+        window.speechSynthesis.speak(utterance);
+      });
+    };
+
+    const runNarration = async () => {
+      setIsNarrating(true);
+      try {
+        const text = getNarrationText(country);
+
+        window.speechSynthesis.cancel();
+        
+        await new Promise<void>((resolve) => {
+          const timeoutId = setTimeout(resolve, 500);
+          signal.addEventListener('abort', () => {
+            clearTimeout(timeoutId);
+            resolve();
+          });
+        });
+        
+        if (signal.aborted) return;
+
+        let voices = window.speechSynthesis.getVoices();
+        if (voices.length === 0) {
+          await new Promise<void>(resolve => {
+            window.speechSynthesis.onvoiceschanged = () => resolve();
+            const fallbackId = setTimeout(resolve, 100);
+            signal.addEventListener('abort', () => {
+              clearTimeout(fallbackId);
+              resolve();
+            });
+          });
+          voices = window.speechSynthesis.getVoices();
+        }
+        if (signal.aborted) return;
+
+        const engVoices = voices.filter(v => v.lang.startsWith('en'));
+        let voice: SpeechSynthesisVoice | undefined;
+        if (engVoices.length > 0) {
+          voice = engVoices[currentIndex % engVoices.length];
+        }
+
+        await speakText(text, voice);
+
+        if (!signal.aborted && autoScrollRef.current) {
+          if (nextCountry) {
+            navigate(`/countries/${nextCountry.name}`);
+          } else {
+            setAutoScrollEnabled(false);
+            navigate('/');
+          }
+        }
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          console.error("Narration error:", err);
+        }
+        // Fallback if narration fails completely
+        if (!signal.aborted && autoScrollRef.current) {
+          setTimeout(() => {
+            if (!signal.aborted && autoScrollRef.current) {
+              if (nextCountry) {
+                navigate(`/countries/${nextCountry.name}`);
+              } else {
+                setAutoScrollEnabled(false);
+                navigate('/');
+              }
+            }
+          }, autoScrollDelay);
+        }
+      } finally {
+        if (!signal.aborted) {
+          setIsNarrating(false);
+        }
+      }
+    };
+
+    runNarration();
+
+    return () => {
+      controller.abort();
+      window.speechSynthesis.cancel();
+    };
+  }, [country, currentIndex, narrationEnabled, nextCountry, navigate, setAutoScrollEnabled, autoScrollDelay]);
 
   useEffect(() => {
     if (!country) {
@@ -154,6 +290,12 @@ export default function CountryDetailPage() {
               <span>{continent || 'National Heritage Profile'}</span>
               <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-700"></span>
               <span>{currentIndex + 1} of {sortedCountries.length}</span>
+              {isNarrating && (
+                <>
+                  <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-700"></span>
+                  <Volume2 className="w-3 h-3 text-purple-500 animate-pulse" />
+                </>
+              )}
             </motion.div>
           </div>
 
