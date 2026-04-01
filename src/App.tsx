@@ -33,7 +33,7 @@ export default function App() {
             <FirebaseProvider>
             <div 
               id="app-root" 
-              className={`bg-[#f8f9fa] dark:bg-[#0f1115] text-[#212529] dark:text-[#f8f9fa] font-sans transition-colors duration-300 relative ${isMobile ? 'h-full overflow-y-auto mobile-scrollbar' : 'min-h-screen'}`}
+              className={`bg-[#f0f2f5] dark:bg-[#0f1115] text-[#212529] dark:text-[#f8f9fa] font-sans transition-colors duration-300 relative ${isMobile ? 'h-full overflow-y-auto mobile-scrollbar' : 'min-h-screen'}`}
             >
               <BackgroundPattern />
               <div className="relative z-10">
@@ -44,6 +44,7 @@ export default function App() {
                       <Route path="/" element={<LandingPage />} />
                       <Route path="/capitals" element={<GalleryPage type="capitals" />} />
                       <Route path="/animals" element={<GalleryPage type="animals" />} />
+                      <Route path="/birds" element={<GalleryPage type="birds" />} />
                       <Route path="/flags" element={<GalleryPage type="flags" />} />
                       <Route path="/currencies" element={<GalleryPage type="currencies" />} />
                       <Route path="/flowers" element={<GalleryPage type="flowers" />} />

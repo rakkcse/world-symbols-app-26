@@ -9,7 +9,14 @@ service cloud.firestore {
     // Document ID: {type}
     // Fields:
     //   - type: string (required) - The category (animals, flags, currencies, flowers).
-    //   - images: map (required) - Country name to base64 string.
+    //   - images: map (optional) - Legacy field for country name to base64 string.
+    //   - updatedAt: timestamp (optional) - Last update time.
+    //   - lastUpdatedBy: string (optional) - The user's unique ID.
+    //
+    // Subcollection: images
+    // Document ID: {countryName}
+    // Fields:
+    //   - image: string (required) - Base64 string of the image.
     //   - updatedAt: timestamp (optional) - Last update time.
     //   - lastUpdatedBy: string (optional) - The user's unique ID.
     //
@@ -34,10 +41,15 @@ service cloud.firestore {
     }
 
     function isValidGlobalCollection(data) {
-      return data.keys().hasAll(['type', 'images']) &&
-             data.type is string &&
-             data.images is map &&
-             data.images.size() <= 300 &&
+      return data.type is string &&
+             (!('images' in data) || (data.images is map && data.images.size() <= 300)) &&
+             (!('updatedAt' in data) || data.updatedAt is timestamp) &&
+             (!('lastUpdatedBy' in data) || data.lastUpdatedBy is string);
+    }
+
+    function isValidGlobalImage(data) {
+      return data.image is string &&
+             data.image.size() <= 1048576 && // 1MB limit for the field itself
              (!('updatedAt' in data) || data.updatedAt is timestamp) &&
              (!('lastUpdatedBy' in data) || data.lastUpdatedBy is string);
     }
@@ -60,6 +72,12 @@ service cloud.firestore {
     match /global_collections/{type} {
       allow read: if true;
       allow write: if isValidGlobalCollection(request.resource.data);
+
+      match /images/{countryName} {
+        allow read: if true;
+        allow create, update: if isValidGlobalImage(request.resource.data);
+        allow delete: if true; // Allow removal of images
+      }
     }
 
     match /collections/{collectionId} {

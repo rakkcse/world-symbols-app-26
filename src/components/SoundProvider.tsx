@@ -21,6 +21,7 @@ export const useSound = () => {
 const SOUNDS: Record<string, string> = {
   default: 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3',
   animals: 'https://assets.mixkit.co/active_storage/sfx/2580/2580-preview.mp3',
+  birds: 'https://assets.mixkit.co/active_storage/sfx/2580/2580-preview.mp3',
   flags: 'https://assets.mixkit.co/active_storage/sfx/2569/2569-preview.mp3',
   capitals: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3',
   currencies: 'https://assets.mixkit.co/active_storage/sfx/2570/2570-preview.mp3',

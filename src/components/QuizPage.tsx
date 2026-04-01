@@ -7,13 +7,13 @@ import { useNavigation } from './NavigationLayout';
 import { useSound } from './SoundProvider';
 
 import { db } from '../firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
 
-type QuizCategory = 'capitals' | 'flags' | 'currencies' | 'animals' | 'flowers' | 'sports' | 'random';
+type QuizCategory = 'capitals' | 'flags' | 'currencies' | 'animals' | 'birds' | 'flowers' | 'sports' | 'random';
 
 interface Question {
   id: number;
-  type: 'capital' | 'flag' | 'currency' | 'animal' | 'flower' | 'sport';
+  type: 'capital' | 'flag' | 'currency' | 'animal' | 'bird' | 'flower' | 'sport';
   country: string;
   question: string;
   correctAnswer: string;
@@ -84,7 +84,8 @@ export default function QuizPage() {
     const filteredCountries = countries.filter(c => {
       if (category === 'capitals') return !!c.capital;
       if (category === 'currencies') return c.currencies && c.currencies.length > 0;
-      if (category === 'animals') return (c.animals && c.animals.length > 0) || (c.birds && c.birds.length > 0);
+      if (category === 'animals') return c.animals && c.animals.length > 0;
+      if (category === 'birds') return c.birds && c.birds.length > 0;
       if (category === 'flowers') return c.flowers && c.flowers.length > 0;
       if (category === 'sports') return c.sports && c.sports.length > 0;
       return true;
@@ -96,10 +97,20 @@ export default function QuizPage() {
     let flagImages: { [key: string]: string } = {};
     if (category === 'flags' || category === 'random') {
       try {
-        const docRef = doc(db, 'global_collections', 'flags');
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          flagImages = docSnap.data().images || {};
+        // Try subcollection first
+        const collRef = collection(db, 'global_collections', 'flags', 'images');
+        const snapshot = await getDocs(collRef);
+        if (!snapshot.empty) {
+          snapshot.forEach(doc => {
+            flagImages[doc.id] = doc.data().image;
+          });
+        } else {
+          // Fallback to legacy document
+          const docRef = doc(db, 'global_collections', 'flags');
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+            flagImages = docSnap.data().images || {};
+          }
         }
       } catch (error) {
         console.error("Error fetching flag images:", error);
@@ -107,22 +118,24 @@ export default function QuizPage() {
     }
 
     const newQuestions: Question[] = selectedCountries.map((country, index) => {
-      let type: 'capital' | 'flag' | 'currency' | 'animal' | 'flower' | 'sport';
+      let type: 'capital' | 'flag' | 'currency' | 'animal' | 'bird' | 'flower' | 'sport';
       
-      const typeMap: Record<string, 'capital' | 'flag' | 'currency' | 'animal' | 'flower' | 'sport'> = {
+      const typeMap: Record<string, 'capital' | 'flag' | 'currency' | 'animal' | 'bird' | 'flower' | 'sport'> = {
         capitals: 'capital',
         flags: 'flag',
         currencies: 'currency',
         animals: 'animal',
+        birds: 'bird',
         flowers: 'flower',
         sports: 'sport'
       };
 
       if (category === 'random') {
-        const availableTypes: ('capital' | 'flag' | 'currency' | 'animal' | 'flower' | 'sport')[] = [];
+        const availableTypes: ('capital' | 'flag' | 'currency' | 'animal' | 'bird' | 'flower' | 'sport')[] = [];
         if (country.capital) availableTypes.push('capital');
         if (country.currencies && country.currencies.length > 0) availableTypes.push('currency');
-        if ((country.animals && country.animals.length > 0) || (country.birds && country.birds.length > 0)) availableTypes.push('animal');
+        if (country.animals && country.animals.length > 0) availableTypes.push('animal');
+        if (country.birds && country.birds.length > 0) availableTypes.push('bird');
         if (country.flowers && country.flowers.length > 0) availableTypes.push('flower');
         if (country.sports && country.sports.length > 0) availableTypes.push('sport');
         if (flagImages[country.name]) availableTypes.push('flag');
@@ -166,7 +179,11 @@ export default function QuizPage() {
           break;
         case 'animal':
           question = `What is the national animal of ${country.name}?`;
-          correctAnswer = country.animals[0] || country.birds?.[0] || "Unknown";
+          correctAnswer = country.animals[0] || "Unknown";
+          break;
+        case 'bird':
+          question = `What is the national bird of ${country.name}?`;
+          correctAnswer = country.birds[0] || "Unknown";
           break;
         case 'flower':
           question = `What is the national flower of ${country.name}?`;
@@ -185,7 +202,8 @@ export default function QuizPage() {
           if (type === 'capital') return c.capital;
           if (type === 'flag') return flagSubtype === 'identify_country' ? c.name : flagImages[c.name];
           if (type === 'currency') return c.currencies[0];
-          if (type === 'animal') return c.animals[0] || c.birds?.[0];
+          if (type === 'animal') return c.animals[0];
+          if (type === 'bird') return c.birds[0];
           if (type === 'flower') return c.flowers[0];
           if (type === 'sport') return c.sports[0];
           return "";
@@ -274,6 +292,7 @@ export default function QuizPage() {
     { id: 'flags', label: 'Flags', icon: '🚩', color: 'red' },
     { id: 'currencies', label: 'Currencies', icon: '💵', color: 'emerald' },
     { id: 'animals', label: 'Animals', icon: '🦁', color: 'blue' },
+    { id: 'birds', label: 'Birds', icon: '🦜', color: 'orange' },
     { id: 'flowers', label: 'Flowers', icon: '🌸', color: 'pink' },
     { id: 'sports', label: 'Sports', icon: '🏆', color: 'teal' },
     { id: 'random', label: 'Random Mix', icon: '🎲', color: 'orange' },

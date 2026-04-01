@@ -1,10 +1,10 @@
 import { useState, ChangeEvent, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from "motion/react";
-import { Loader2, Image as ImageIcon, PawPrint, Upload, Trash2, ArrowLeft, Flag, Banknote, Flower2, LogIn, LogOut, Trophy, Landmark, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, Image as ImageIcon, PawPrint, Bird, Upload, Trash2, ArrowLeft, Flag, Banknote, Flower2, LogIn, LogOut, Trophy, Landmark, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { countries } from "../data/countries";
 import { useFirebase } from './FirebaseProvider';
-import { doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, serverTimestamp, collection, getDocs, deleteDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 import { compressImage } from '../lib/image-utils';
@@ -13,7 +13,7 @@ import { useAutoScroll } from './AutoScrollProvider';
 import { useSound } from './SoundProvider';
 
 interface GalleryPageProps {
-  type: 'animals' | 'flags' | 'currencies' | 'flowers' | 'sports' | 'capitals';
+  type: 'animals' | 'birds' | 'flags' | 'currencies' | 'flowers' | 'sports' | 'capitals';
 }
 
 const SearchInput = ({ 
@@ -61,17 +61,18 @@ export default function GalleryPage({ type }: GalleryPageProps) {
   const { autoScrollEnabled, setAutoScrollEnabled, autoScrollDelay } = useAutoScroll();
   const [images, setImages] = useState<{ [key: string]: string }>({});
   const [uploading, setUploading] = useState(false);
-  const [selectedLetter, setSelectedLetter] = useState<string | null>("#");
+  const [selectedLetter, setSelectedLetter] = useState<string | null>("A");
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [selectedItems, setSelectedItems] = useState<{ [key: string]: string }>(
     Object.fromEntries(countries.map(c => [
       c.name, 
-      type === 'animals' ? (c.animals[0] || c.birds?.[0] || '') : type === 'currencies' ? c.currencies[0] : type === 'flowers' ? c.flowers[0] : type === 'sports' ? c.sports[0] : type === 'capitals' ? c.capital : ''
+      type === 'animals' ? (c.animals[0] || '') : type === 'birds' ? (c.birds?.[0] || '') : type === 'currencies' ? c.currencies[0] : type === 'flowers' ? c.flowers[0] : type === 'sports' ? c.sports[0] : type === 'capitals' ? c.capital : ''
     ]))
   );
   const galleryRef = useRef<HTMLElement>(null);
+  const [narratingCountry, setNarratingCountry] = useState<string | null>(null);
 
   const [isMobile, setIsMobile] = useState(false);
 
@@ -82,18 +83,45 @@ export default function GalleryPage({ type }: GalleryPageProps) {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  useEffect(() => {
+    setSelectedItems(
+      Object.fromEntries(countries.map(c => [
+        c.name, 
+        type === 'animals' ? (c.animals[0] || '') : type === 'birds' ? (c.birds?.[0] || '') : type === 'currencies' ? c.currencies[0] : type === 'flowers' ? c.flowers[0] : type === 'sports' ? c.sports[0] : type === 'capitals' ? c.capital : ''
+      ]))
+    );
+  }, [type]);
+
   // Load images from Firestore
   useEffect(() => {
-    const docPath = `global_collections/${type}`;
-    const docRef = doc(db, 'global_collections', type);
-    const unsubscribe = onSnapshot(docRef, (docSnap) => {
-      if (docSnap.exists()) {
-        setImages(docSnap.data().images || {});
+    const collPath = `global_collections/${type}/images`;
+    const collRef = collection(db, 'global_collections', type, 'images');
+    
+    // Listen to the subcollection for real-time updates
+    const unsubscribe = onSnapshot(collRef, (snapshot) => {
+      const newImages: { [key: string]: string } = {};
+      snapshot.forEach((doc) => {
+        newImages[doc.id] = doc.data().image;
+      });
+      
+      // If we have images in the subcollection, use them
+      if (Object.keys(newImages).length > 0) {
+        setImages(newImages);
       } else {
-        setImages({});
+        // Otherwise check the legacy document once for migration
+        const docRef = doc(db, 'global_collections', type);
+        onSnapshot(docRef, (docSnap) => {
+          if (docSnap.exists() && docSnap.data().images) {
+            setImages(docSnap.data().images);
+          } else {
+            setImages({});
+          }
+        }, (error) => {
+          handleFirestoreError(error, OperationType.GET, `global_collections/${type}`);
+        });
       }
     }, (error) => {
-      handleFirestoreError(error, OperationType.GET, docPath);
+      handleFirestoreError(error, OperationType.GET, collPath);
     });
 
     return () => unsubscribe();
@@ -128,12 +156,11 @@ export default function GalleryPage({ type }: GalleryPageProps) {
     }
   }, [selectedLetter, currentPage, isMobile]);
 
-  const saveImages = async (newImages: { [key: string]: string }) => {
-    const docPath = `global_collections/${type}`;
+  const saveImage = async (countryName: string, base64: string) => {
+    const docPath = `global_collections/${type}/images/${countryName}`;
     try {
-      await setDoc(doc(db, 'global_collections', type), {
-        type,
-        images: newImages,
+      await setDoc(doc(db, 'global_collections', type, 'images', countryName), {
+        image: base64,
         updatedAt: serverTimestamp(),
         lastUpdatedBy: user?.uid || 'anonymous'
       });
@@ -142,24 +169,29 @@ export default function GalleryPage({ type }: GalleryPageProps) {
     }
   };
 
-  const alphabet = ["#", ...Array.from("ABCDEFGHIJKLMNOPQRSTUVWXYZ")];
-  const availableLetters = ["#", ...Array.from(new Set(countries.map(c => c.name.trim()[0].toUpperCase()))).sort()];
+  const alphabet = ["ALL", ...Array.from("ABCDEFGHIJKLMNOPQRSTUVWXYZ")];
+  const availableLetters = ["ALL", ...Array.from(new Set(countries.map(c => c.name.trim()[0].toUpperCase()))).sort()];
 
-  const currentIndex = selectedLetter ? availableLetters.indexOf(selectedLetter) : -1;
-  const prevLetter = currentIndex > 0 ? availableLetters[currentIndex - 1] : null;
-  const nextLetter = currentIndex < availableLetters.length - 1 ? availableLetters[currentIndex + 1] : null;
+  const currentIndex = selectedLetter ? alphabet.indexOf(selectedLetter) : -1;
+  const prevLetter = currentIndex > 0 ? alphabet[currentIndex - 1] : null;
+  const nextLetter = currentIndex < alphabet.length - 1 ? alphabet[currentIndex + 1] : null;
 
   const filteredCountries = countries.filter(c => {
+    // Filter out countries with no data for specific types
+    if (type === 'flowers' && (!c.flowers || c.flowers.length === 0)) return false;
+    if (type === 'animals' && (!c.animals || c.animals.length === 0)) return false;
+    if (type === 'birds' && (!c.birds || c.birds.length === 0)) return false;
+
     const countryName = c.name.trim();
     const matchesSearch = countryName.toLowerCase().includes(searchQuery.toLowerCase());
     if (searchQuery) return matchesSearch;
     
-    const matchesLetter = !selectedLetter || selectedLetter === "#" || countryName.toUpperCase().startsWith(selectedLetter.toUpperCase());
+    const matchesLetter = !selectedLetter || selectedLetter === "ALL" || countryName.toUpperCase().startsWith(selectedLetter.toUpperCase());
     return matchesSearch && matchesLetter;
   });
 
-  const totalPages = Math.ceil(filteredCountries.length / itemsPerPage);
-  const paginatedCountries = selectedLetter === "#" 
+  const totalPages = selectedLetter === "ALL" ? Math.ceil(filteredCountries.length / itemsPerPage) : 1;
+  const paginatedCountries = selectedLetter === "ALL" 
     ? filteredCountries.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
     : filteredCountries;
 
@@ -170,26 +202,39 @@ export default function GalleryPage({ type }: GalleryPageProps) {
 
   // Auto-scroll logic (when narration is disabled)
   useEffect(() => {
-    if (!autoScrollEnabled || narrationEnabled || selectedLetter !== "#") return;
+    if (!autoScrollEnabled || narrationEnabled) return;
 
     const interval = setInterval(() => {
-      setCurrentPage(prev => {
-        if (prev < totalPages) {
-          return prev + 1;
+      setCurrentPage(prevPage => {
+        if (prevPage < totalPages) {
+          return prevPage + 1;
+        } else {
+          // Use setTimeout to defer state updates and navigation to the next tick
+          setTimeout(() => {
+            if (selectedLetter === "ALL") {
+              setAutoScrollEnabled(false);
+              navigate('/');
+            } else {
+              if (nextLetter) {
+                setSelectedLetter(nextLetter);
+                setCurrentPage(1);
+              } else {
+                setAutoScrollEnabled(false);
+                navigate('/');
+              }
+            }
+          }, 0);
+          return prevPage;
         }
-        // Stop auto-scroll and go to landing page
-        setAutoScrollEnabled(false);
-        navigate('/');
-        return prev;
       });
     }, autoScrollDelay);
 
     return () => clearInterval(interval);
-  }, [autoScrollEnabled, autoScrollDelay, selectedLetter, totalPages, navigate, setAutoScrollEnabled, narrationEnabled]);
+  }, [autoScrollEnabled, autoScrollDelay, selectedLetter, totalPages, navigate, setAutoScrollEnabled, narrationEnabled, nextLetter, currentPage]);
 
   // Narration logic
   useEffect(() => {
-    if (!narrationEnabled || type === 'flags') return;
+    if (!narrationEnabled) return;
 
     const controller = new AbortController();
     const signal = controller.signal;
@@ -210,13 +255,12 @@ export default function GalleryPage({ type }: GalleryPageProps) {
           return c.flowers?.length ? `${c.name}: ${formatList(c.flowers)}` : c.name;
         case 'sports':
           return c.sports?.length ? `${c.name}: ${formatList(c.sports)}` : c.name;
-        case 'animals': {
-          const parts = [];
-          if (c.animals?.length) parts.push(`National animal: ${formatList(c.animals)}`);
-          if (c.birds?.length) parts.push(`National Bird: ${formatList(c.birds)}`);
-          if (parts.length === 0) return c.name;
-          return `${c.name}: ${parts.join(', ')}`;
-        }
+        case 'animals':
+          return c.animals?.length ? `${c.name}: ${formatList(c.animals)}` : c.name;
+        case 'birds':
+          return c.birds?.length ? `${c.name}: ${formatList(c.birds)}` : c.name;
+        case 'flags':
+          return c.name;
         default:
           return c.name;
       }
@@ -247,7 +291,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
         window.speechSynthesis.cancel();
         
         await new Promise<void>((resolve) => {
-          const timeoutId = setTimeout(resolve, 100);
+          const timeoutId = setTimeout(resolve, 500);
           signal.addEventListener('abort', () => {
             clearTimeout(timeoutId);
             resolve();
@@ -273,7 +317,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
         const engVoices = voices.filter(v => v.lang.startsWith('en'));
 
         // 1. Header narration
-        if (currentPage === 1 && selectedLetter === "#") {
+        if (currentPage === 1 && selectedLetter === "ALL") {
            const headerText = `National ${type.charAt(0).toUpperCase() + type.slice(1)}`;
            await speakText(headerText, engVoices.length > 0 ? engVoices[0] : undefined);
         }
@@ -282,24 +326,46 @@ export default function GalleryPage({ type }: GalleryPageProps) {
         for (let i = 0; i < paginatedCountries.length; i++) {
           if (signal.aborted) break;
           const c = paginatedCountries[i];
+          setNarratingCountry(c.name);
           const text = getCountryNarration(c);
           
           // Alternate voices between each card
           const voice = engVoices.length > 0 ? engVoices[i % engVoices.length] : undefined;
           await speakText(text, voice);
         }
+        
+        if (!signal.aborted) {
+          setNarratingCountry(null);
+        }
 
         // 3. Auto-scroll if enabled
-        if (!signal.aborted && autoScrollRef.current && selectedLetter === "#") {
+        if (!signal.aborted && autoScrollRef.current) {
           if (currentPage < totalPages) {
             setCurrentPage(prev => prev + 1);
           } else {
-            setAutoScrollEnabled(false);
-            navigate('/');
+            // Use setTimeout to defer state updates and navigation to the next tick
+            setTimeout(() => {
+              if (selectedLetter === "ALL") {
+                setAutoScrollEnabled(false);
+                navigate('/');
+              } else {
+                if (nextLetter) {
+                  setSelectedLetter(nextLetter);
+                  setCurrentPage(1);
+                } else {
+                  setAutoScrollEnabled(false);
+                  navigate('/');
+                }
+              }
+            }, 0);
           }
         }
       } catch (err) {
         // ignore
+      } finally {
+        if (!signal.aborted) {
+          setNarratingCountry(null);
+        }
       }
     };
 
@@ -308,8 +374,9 @@ export default function GalleryPage({ type }: GalleryPageProps) {
     return () => {
       controller.abort();
       window.speechSynthesis.cancel();
+      setNarratingCountry(null);
     };
-  }, [type, currentPage, selectedLetter, totalPages, narrationEnabled, navigate, setAutoScrollEnabled, searchQuery]);
+  }, [type, currentPage, selectedLetter, totalPages, narrationEnabled, navigate, setAutoScrollEnabled, searchQuery, nextLetter]);
 
   const [gridConfig, setGridConfig] = useState<{ cols: number; rows: number }>(() => {
     try {
@@ -331,13 +398,46 @@ export default function GalleryPage({ type }: GalleryPageProps) {
     else if (window.innerWidth < 1280) baseCols = 5;
     else baseCols = 6;
 
+    // Adjust baseCols based on type
+    if (type === 'flags') {
+      baseCols = Math.max(2, baseCols - 1);
+    } else if (type === 'flowers') {
+      baseCols = baseCols + 1;
+    }
+
     let bestCols = baseCols;
 
-    if (selectedLetter !== "#") {
-      if (baseCols >= 4 && selectedLetter === 'U') {
+    if (selectedLetter !== "ALL") {
+      if (type === 'flags' && !isMobile) {
+        // Dynamic grid for Flags based on height to fill empty space
+        const headerHeight = 180; // Approximate header + alphabet height
+        const availableHeight = window.innerHeight - headerHeight;
+        const availableWidth = Math.min(window.innerWidth, 1280) - 64; // max-w-7xl + padding
+        
+        let minDiff = Infinity;
+        let fitCols = baseCols;
+        
+        // Test a range of columns to find the best vertical fit
+        // For flags (16:9), we want to fill the height without excessive scrolling
+        const testRange = [2, 3, 4, 5, 6, 7, 8];
+        for (const c of testRange) {
+          const rows = Math.ceil(count / c);
+          const cardWidth = availableWidth / c;
+          const cardHeight = (cardWidth * 0.5625) + 50; // 16:9 + label/padding
+          const totalHeight = rows * cardHeight;
+          
+          // We prefer filling the height or being slightly over (scrollable) 
+          // rather than having huge empty spaces
+          const diff = Math.abs(totalHeight - availableHeight);
+          
+          if (diff < minDiff) {
+            minDiff = diff;
+            fitCols = c;
+          }
+        }
+        bestCols = fitCols;
+      } else if (baseCols >= 4 && selectedLetter === 'U') {
         bestCols = 4; // 7 items -> 2 rows of 4 and 3
-      } else if (baseCols >= 4 && selectedLetter === 'S') {
-        bestCols = 9; // 26 items -> 3 rows (9 columns reduces card size as requested)
       } else if (count <= baseCols) {
         bestCols = Math.max(2, count);
       } else {
@@ -388,7 +488,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
 
   // Custom navigation for pagination and alphabetical groups
   useEffect(() => {
-    if (selectedLetter === "#") {
+    if (selectedLetter === "ALL") {
       setCustomHandlers({
         onNext: () => {
           if (currentPage < totalPages) {
@@ -405,7 +505,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
           return false; // Let NavigationLayout handle it (go to Landing)
         }
       });
-    } else if (selectedLetter && selectedLetter !== "#") {
+    } else if (selectedLetter && selectedLetter !== "ALL") {
       setCustomHandlers({
         onNext: () => {
           if (selectedLetter === "Z") {
@@ -420,7 +520,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
         },
         onBack: () => {
           if (selectedLetter === "A") {
-            setSelectedLetter("#");
+            setSelectedLetter("ALL");
             setCurrentPage(1);
             return true;
           }
@@ -445,10 +545,8 @@ export default function GalleryPage({ type }: GalleryPageProps) {
 
     setUploading(true);
     const fileList = Array.from(files) as File[];
-    let processedCount = 0;
-    const newImages = { ...images };
-
-    fileList.forEach(async (file) => {
+    
+    await Promise.all(fileList.map(async (file) => {
       const fileName = file.name.toLowerCase();
       const sortedCountries = [...countries].sort((a, b) => b.name.length - a.name.length);
       const matchedCountry = sortedCountries.find(c => 
@@ -458,38 +556,54 @@ export default function GalleryPage({ type }: GalleryPageProps) {
       if (matchedCountry) {
         try {
           const compressedBase64 = await compressImage(file, 800, 800, 0.7);
-          newImages[matchedCountry.name] = compressedBase64;
+          await saveImage(matchedCountry.name, compressedBase64);
         } catch (error) {
-          console.error("Error compressing image", error);
+          console.error("Error compressing/saving image", error);
         }
       }
-      
-      processedCount++;
-      if (processedCount === fileList.length) {
-        await saveImages(newImages);
-        setUploading(false);
-      }
-    });
+    }));
     
+    setUploading(false);
     e.target.value = '';
   };
 
   const removeImage = async (countryName: string) => {
-    const next = { ...images };
-    delete next[countryName];
-    await saveImages(next);
+    const docPath = `global_collections/${type}/images/${countryName}`;
+    try {
+      await deleteDoc(doc(db, 'global_collections', type, 'images', countryName));
+      
+      // Also check legacy document and remove from there if it exists
+      const docRef = doc(db, 'global_collections', type);
+      await setDoc(docRef, { images: { [countryName]: null } }, { merge: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, docPath);
+    }
   };
 
   const clearAll = async () => {
-    const typeLabel = type === 'animals' ? 'animal photos' : type === 'flags' ? 'flags' : type === 'currencies' ? 'currency photos' : type === 'flowers' ? 'flower photos' : type === 'sports' ? 'sports photos' : 'capital photos';
+    const typeLabel = type === 'animals' ? 'animal photos' : type === 'birds' ? 'bird photos' : type === 'flags' ? 'flags' : type === 'currencies' ? 'currency photos' : type === 'flowers' ? 'flower photos' : type === 'sports' ? 'sports photos' : 'capital photos';
     if (window.confirm(`Are you sure you want to clear all uploaded ${typeLabel}?`)) {
-      await saveImages({});
+      try {
+        const collRef = collection(db, 'global_collections', type, 'images');
+        const snapshot = await getDocs(collRef);
+        const batch = writeBatch(db);
+        snapshot.forEach((doc) => {
+          batch.delete(doc.ref);
+        });
+        await batch.commit();
+        
+        // Also clear legacy document
+        await setDoc(doc(db, 'global_collections', type), { images: {} }, { merge: true });
+      } catch (error) {
+        console.error("Error clearing images", error);
+      }
     }
   };
 
   const getIcon = () => {
     switch (type) {
       case 'animals': return <PawPrint className="w-5 h-5 mr-2" />;
+      case 'birds': return <Bird className="w-5 h-5 mr-2" />;
       case 'flags': return <Flag className="w-5 h-5 mr-2" />;
       case 'currencies': return <Banknote className="w-5 h-5 mr-2" />;
       case 'flowers': return <Flower2 className="w-5 h-5 mr-2" />;
@@ -501,6 +615,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
   const getCollectionLabel = () => {
     switch (type) {
       case 'animals': return 'Wildlife Collection';
+      case 'birds': return 'Avian Collection';
       case 'flags': return 'Vexillology Collection';
       case 'currencies': return 'Numismatic Collection';
       case 'flowers': return 'Botanical Collection';
@@ -512,6 +627,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
   const getDescription = () => {
     switch (type) {
       case 'animals': return "Build your personal collection by uploading animal photos. Name your files with the country name for automatic matching.";
+      case 'birds': return "Build your personal collection by uploading bird photos. Name your files with the country name for automatic matching.";
       case 'flags': return "Create your digital flag collection. Upload flag images named after their respective countries for automatic organization.";
       case 'currencies': return "Curate your digital currency collection. Upload banknote or coin images named after their respective countries.";
       case 'flowers': return "Discover the world's national flowers. Upload photos of symbolic flora named after their respective countries.";
@@ -527,7 +643,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
   const getLetterStyles = (letter: string) => {
     const isAvailable = availableLetters.includes(letter);
     const isSelected = selectedLetter === letter;
-    const isHash = letter === "#";
+    const isHash = letter === "ALL";
 
     if (isSelected) {
       if (isHash) return 'bg-indigo-600 text-white shadow-md scale-105';
@@ -543,7 +659,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
   };
 
   const PaginationControls = () => {
-    if (selectedLetter !== "#" || totalPages <= 1) return null;
+    if (selectedLetter !== "ALL" || totalPages <= 1) return null;
     return (
       <div className="flex items-center gap-2 bg-white dark:bg-[#1a1d23] p-1 px-2 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm">
         <button
@@ -570,7 +686,19 @@ export default function GalleryPage({ type }: GalleryPageProps) {
   };
 
   const getGridConfig = () => {
-    if (selectedLetter === "#") {
+    if (selectedLetter === "ALL") {
+      if (type === 'flags') {
+        return {
+          className: "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 gap-4 md:gap-6",
+          style: {}
+        };
+      }
+      if (type === 'flowers') {
+        return {
+          className: "grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-7 gap-2 md:gap-3",
+          style: {}
+        };
+      }
       return {
         className: "grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-5 gap-3 md:gap-4",
         style: {}
@@ -648,7 +776,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
             </motion.div>
           </div>
 
-          {selectedLetter === "#" ? (
+          {selectedLetter === "ALL" ? (
             <div className="w-full flex flex-row lg:flex-row items-center justify-center gap-3 lg:gap-6 px-2 gallery-header-responsive">
               <div className="w-full lg:w-auto flex items-center justify-between lg:justify-start gap-3 gallery-search-section">
                 <div className="flex items-center gap-1.5">
@@ -660,13 +788,13 @@ export default function GalleryPage({ type }: GalleryPageProps) {
                   />
                   <button
                     onClick={() => {
-                      setSelectedLetter("#");
+                      setSelectedLetter("ALL");
                       setSearchQuery("");
                       setCurrentPage(1);
                     }}
-                    className={`w-8 h-8 rounded-lg text-xs font-bold transition-all flex items-center justify-center ${getLetterStyles("#")}`}
+                    className={`w-8 h-8 rounded-lg text-xs font-bold transition-all flex items-center justify-center ${getLetterStyles("ALL")}`}
                   >
-                    #
+                    ALL
                   </button>
                 </div>
                 
@@ -723,13 +851,13 @@ export default function GalleryPage({ type }: GalleryPageProps) {
                   />
                   <button
                     onClick={() => {
-                      setSelectedLetter("#");
+                      setSelectedLetter("ALL");
                       setSearchQuery("");
                       setCurrentPage(1);
                     }}
-                    className={`w-8 h-8 rounded-lg text-xs font-bold transition-all flex items-center justify-center ${getLetterStyles("#")}`}
+                    className={`w-8 h-8 rounded-lg text-xs font-bold transition-all flex items-center justify-center ${getLetterStyles("ALL")}`}
                   >
-                    #
+                    ALL
                   </button>
                 </div>
 
@@ -783,7 +911,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
             <p className="text-lg font-medium">No countries found for "{selectedLetter}"</p>
             <button 
               onClick={() => {
-                setSelectedLetter("#");
+                setSelectedLetter("ALL");
                 setSearchQuery("");
                 setCurrentPage(1);
               }}
@@ -806,9 +934,9 @@ export default function GalleryPage({ type }: GalleryPageProps) {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
               transition={{ duration: 0.3 }}
-              className={`group bg-white dark:bg-[#1a1d23] rounded-xl md:rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-500 border border-gray-100 dark:border-gray-800 flex flex-col ${selectedLetter !== "#" ? 'scale-95' : ''}`}
+              className={`group bg-white dark:bg-[#1a1d23] rounded-xl md:rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-500 border border-gray-100 dark:border-gray-800 flex flex-col ${narratingCountry === country.name ? 'ring-4 ring-blue-500 dark:ring-blue-400 scale-[1.15] md:scale-[1.25] shadow-2xl z-50' : (selectedLetter !== "ALL" ? 'scale-95' : '')}`}
             >
-              <div className="relative aspect-square bg-gray-50 dark:bg-gray-900/50 flex items-center justify-center overflow-hidden">
+              <div className={`relative ${type === 'flags' ? 'aspect-video' : 'aspect-square'} bg-gray-50 dark:bg-gray-900/50 flex items-center justify-center overflow-hidden`}>
                 <AnimatePresence mode="wait">
                   {images[country.name] ? (
                     <motion.div key="image" className="relative w-full h-full">
@@ -837,8 +965,8 @@ export default function GalleryPage({ type }: GalleryPageProps) {
                       exit={{ opacity: 0 }}
                       className="flex flex-col items-center text-gray-300 dark:text-gray-700 p-2 text-center"
                     >
-                      <ImageIcon className={`${selectedLetter !== "#" ? 'w-6 h-6' : 'w-12 h-12'} mb-1 opacity-10`} />
-                      <p className={`${selectedLetter !== "#" ? 'text-[7px]' : 'text-[10px]'} font-medium text-gray-400 dark:text-gray-600 uppercase tracking-widest leading-relaxed`}>
+                      <ImageIcon className={`${selectedLetter !== "ALL" ? 'w-6 h-6' : 'w-12 h-12'} mb-1 opacity-10`} />
+                      <p className={`${selectedLetter !== "ALL" ? 'text-[7px]' : 'text-[10px]'} font-medium text-gray-400 dark:text-gray-600 uppercase tracking-widest leading-relaxed`}>
                         No {type.slice(0, -1)}
                       </p>
                     </motion.div>
@@ -846,14 +974,14 @@ export default function GalleryPage({ type }: GalleryPageProps) {
                 </AnimatePresence>
               </div>
 
-              <div className={`${selectedLetter !== "#" ? 'p-1.5' : 'p-3'} flex-grow flex flex-col items-center text-center`}>
-                <p className={`${selectedLetter !== "#" ? 'text-[10px] md:text-xs' : 'text-sm md:text-base'} font-black text-gray-800 dark:text-gray-100 mb-1 truncate w-full`}>
+              <div className={`${selectedLetter !== "ALL" ? 'p-1.5' : 'p-3'} flex-grow flex flex-col items-center text-center`}>
+                <p className={`${selectedLetter !== "ALL" ? 'text-[10px] md:text-xs' : 'text-sm md:text-base'} font-black text-gray-800 dark:text-gray-100 mb-1 truncate w-full`}>
                   {country.name}
                 </p>
-                {(type === 'animals' || type === 'currencies' || type === 'flowers' || type === 'sports' || type === 'capitals') ? (
+                {(type === 'animals' || type === 'birds' || type === 'currencies' || type === 'flowers' || type === 'sports' || type === 'capitals') ? (
                   <div className="w-full flex flex-col gap-1 mt-auto">
                     {(() => {
-                      const items = type === 'animals' ? [...country.animals, ...(country.birds || [])] : type === 'currencies' ? country.currencies : type === 'flowers' ? country.flowers : type === 'sports' ? country.sports : [country.capital].filter(Boolean);
+                      const items = type === 'animals' ? country.animals : type === 'birds' ? country.birds : type === 'currencies' ? country.currencies : type === 'flowers' ? country.flowers : type === 'sports' ? country.sports : [country.capital].filter(Boolean);
                       if (items.length === 0) {
                         return <span className="text-[7px] text-gray-400 dark:text-gray-500 italic">No data</span>;
                       }

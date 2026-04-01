@@ -10,6 +10,7 @@ const MAIN_PAGES = [
   '/flags',
   '/currencies',
   '/animals',
+  '/birds',
   '/flowers',
   '/sports',
   '/quiz',
@@ -54,6 +55,7 @@ export default function NavigationLayout({ children }: NavigationLayoutProps) {
     let type: string = 'default';
     
     if (path.includes('/animals')) type = 'animals';
+    else if (path.includes('/birds')) type = 'birds';
     else if (path.includes('/flags')) type = 'flags';
     else if (path.includes('/capitals')) type = 'capitals';
     else if (path.includes('/currencies')) type = 'currencies';
@@ -91,7 +93,7 @@ export default function NavigationLayout({ children }: NavigationLayoutProps) {
     // Check if it's a main page
     const mainIndex = MAIN_PAGES.indexOf(path);
     if (mainIndex !== -1) {
-      const isGallery = ['/capitals', '/flags', '/currencies', '/animals', '/flowers', '/sports'].includes(path);
+      const isGallery = ['/capitals', '/flags', '/currencies', '/animals', '/birds', '/flowers', '/sports'].includes(path);
       
       if (isGallery) {
         return {

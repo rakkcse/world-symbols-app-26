@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from "motion/react";
-import { Home, ArrowLeft, ArrowRight, PawPrint, Flag, Banknote, Flower2, Trophy, Loader2, Image as ImageIcon, Landmark, Map as MapIcon, MapPin, Volume2 } from "lucide-react";
+import { Home, ArrowLeft, ArrowRight, PawPrint, Bird, Flag, Banknote, Flower2, Trophy, Loader2, Image as ImageIcon, Landmark, Map as MapIcon, MapPin, Volume2 } from "lucide-react";
 import { countries } from "../data/countries";
 import { db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
@@ -16,6 +16,7 @@ export default function CountryDetailPage() {
   const { narrationEnabled } = useSound();
   const [loading, setLoading] = useState(true);
   const [isNarrating, setIsNarrating] = useState(false);
+  const [narratingCategory, setNarratingCategory] = useState<string | null>(null);
   const [countryImages, setCountryImages] = useState<{ [key: string]: string }>({});
   const [isoCode, setIsoCode] = useState<string | null>(null);
   const [coordinates, setCoordinates] = useState<[number, number] | null>(null);
@@ -106,8 +107,6 @@ export default function CountryDetailPage() {
     const runNarration = async () => {
       setIsNarrating(true);
       try {
-        const text = getNarrationText(country);
-
         window.speechSynthesis.cancel();
         
         await new Promise<void>((resolve) => {
@@ -140,7 +139,32 @@ export default function CountryDetailPage() {
           voice = engVoices[currentIndex % engVoices.length];
         }
 
-        await speakText(text, voice);
+        // 1. Speak country name
+        setNarratingCategory('header');
+        await speakText(country.name, voice);
+        
+        if (signal.aborted) return;
+
+        // 2. Speak categories
+        const catsToNarrate = [
+          { id: 'capitals', text: country.capital ? `Capital : ${country.capital}` : null },
+          { id: 'flags', text: `Flag of ${country.name}` },
+          { id: 'currencies', text: country.currencies?.length ? `Currency : ${formatList(country.currencies)}` : null },
+          { id: 'animals', text: country.animals?.length ? `National Animal : ${formatList(country.animals)}` : null },
+          { id: 'birds', text: country.birds?.length ? `National Bird : ${formatList(country.birds)}` : null },
+          { id: 'flowers', text: country.flowers?.length ? `National Flower : ${formatList(country.flowers)}` : null },
+          { id: 'sports', text: country.sports?.length ? `National Sport : ${formatList(country.sports)}` : null },
+        ].filter(c => c.text);
+
+        for (const cat of catsToNarrate) {
+          if (signal.aborted) break;
+          setNarratingCategory(cat.id);
+          await speakText(cat.text!, voice);
+        }
+
+        if (!signal.aborted) {
+          setNarratingCategory(null);
+        }
 
         if (!signal.aborted && autoScrollRef.current) {
           if (nextCountry) {
@@ -170,6 +194,7 @@ export default function CountryDetailPage() {
       } finally {
         if (!signal.aborted) {
           setIsNarrating(false);
+          setNarratingCategory(null);
         }
       }
     };
@@ -179,6 +204,7 @@ export default function CountryDetailPage() {
     return () => {
       controller.abort();
       window.speechSynthesis.cancel();
+      setNarratingCategory(null);
     };
   }, [country, currentIndex, narrationEnabled, nextCountry, navigate, setAutoScrollEnabled, autoScrollDelay]);
 
@@ -225,13 +251,23 @@ export default function CountryDetailPage() {
 
         if (signal.aborted) return;
 
-        await Promise.all(categories.map(async (category) => {
-          const docRef = doc(db, 'global_collections', category);
-          const docSnap = await getDoc(docRef);
-          if (!signal.aborted && docSnap.exists()) {
-            const data = docSnap.data();
-            if (data.images && data.images[country.name]) {
-              images[category] = data.images[country.name];
+        const categoriesToFetch = ['capitals', 'flags', 'currencies', 'animals', 'birds', 'flowers', 'sports'];
+        await Promise.all(categoriesToFetch.map(async (category) => {
+          // First check the subcollection (new format)
+          const itemRef = doc(db, 'global_collections', category, 'images', country.name);
+          const itemSnap = await getDoc(itemRef);
+          
+          if (!signal.aborted && itemSnap.exists()) {
+            images[category] = itemSnap.data().image;
+          } else {
+            // Fallback to legacy document
+            const docRef = doc(db, 'global_collections', category);
+            const docSnap = await getDoc(docRef);
+            if (!signal.aborted && docSnap.exists()) {
+              const data = docSnap.data();
+              if (data.images && data.images[country.name]) {
+                images[category] = data.images[country.name];
+              }
             }
           }
         }));
@@ -260,14 +296,15 @@ export default function CountryDetailPage() {
     { id: 'capitals', label: 'Capital City', icon: <Landmark className="w-6 h-6" />, items: [country.capital].filter(Boolean), color: 'purple' },
     { id: 'flags', label: 'National Flag', icon: <Flag className="w-6 h-6" />, items: [country.name], color: 'red' },
     { id: 'currencies', label: 'National Currency', icon: <Banknote className="w-6 h-6" />, items: country.currencies, color: 'emerald' },
-    { id: 'animals', label: 'National Animal', icon: <PawPrint className="w-6 h-6" />, items: [...country.animals, ...(country.birds || [])], color: 'blue' },
+    { id: 'animals', label: 'National Animal', icon: <PawPrint className="w-6 h-6" />, items: country.animals, color: 'blue' },
+    { id: 'birds', label: 'National Bird', icon: <Bird className="w-6 h-6" />, items: country.birds, color: 'orange' },
     { id: 'flowers', label: 'National Flower', icon: <Flower2 className="w-6 h-6" />, items: country.flowers, color: 'pink' },
     { id: 'sports', label: 'National Sport', icon: <Trophy className="w-6 h-6" />, items: country.sports, color: 'teal' },
-  ];
+  ].filter(cat => cat.items && cat.items.length > 0);
 
   return (
-    <div className="min-h-screen p-4 md:p-6">
-      <header className="max-w-6xl mx-auto mb-4">
+    <div className={`min-h-screen p-4 md:p-6 transition-all duration-500`}>
+      <header className={`${categories.length === 7 ? 'max-w-7xl' : 'max-w-6xl'} mx-auto mb-4 transition-all duration-500 ${narratingCategory === 'header' ? 'scale-[1.05] ring-4 ring-blue-500/20 dark:ring-blue-400/20 rounded-3xl p-4 bg-white/50 dark:bg-gray-800/50' : ''}`}>
         <div className="flex justify-between items-center mb-2">
         </div>
 
@@ -315,21 +352,21 @@ export default function CountryDetailPage() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto">
+      <main className={`${categories.length === 7 ? 'max-w-7xl' : 'max-w-6xl'} mx-auto`}>
         {loading ? (
           <div className="flex flex-col items-center justify-center py-10">
             <Loader2 className="w-8 h-8 text-blue-600 animate-spin mb-2" />
             <p className="text-gray-500 font-bold uppercase tracking-widest text-xs">Loading Heritage Data...</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-4">
+          <div className={`grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 ${categories.length === 7 ? 'lg:grid-cols-7' : 'lg:grid-cols-6'} gap-3 md:gap-4`}>
             {categories.map((cat, index) => (
               <motion.div
                 key={cat.id}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.05 }}
-                className="bg-white dark:bg-[#1a1d23] rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden flex flex-col"
+                className={`bg-white dark:bg-[#1a1d23] rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden flex flex-col transition-all duration-500 ${narratingCategory === cat.id ? 'scale-[1.15] md:scale-[1.25] ring-4 ring-blue-500 dark:ring-blue-400 shadow-2xl z-50' : ''}`}
               >
                 <div className="aspect-video bg-gray-50 dark:bg-gray-900/50 flex items-center justify-center overflow-hidden relative">
                   {countryImages[cat.id] ? (
@@ -344,9 +381,6 @@ export default function CountryDetailPage() {
                       <span className="text-[8px] font-bold uppercase tracking-widest">No Image</span>
                     </div>
                   )}
-                  <div className={`absolute top-2 left-2 p-1.5 rounded-lg bg-${cat.color}-50 dark:bg-${cat.color}-900/20 text-${cat.color}-600 dark:text-${cat.color}-400 shadow-sm`}>
-                    {cat.icon}
-                  </div>
                 </div>
                 <div className="p-4">
                   <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-1">{cat.label}</h3>

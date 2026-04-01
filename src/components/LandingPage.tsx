@@ -1,6 +1,6 @@
 import { motion } from "motion/react";
 import { Link } from "react-router-dom";
-import { Globe2, PawPrint, Flag, Banknote, Flower2, Trophy, Map, Brain, Landmark, Search } from "lucide-react";
+import { Globe2, PawPrint, Bird, Flag, Banknote, Flower2, Trophy, Map, Brain, Landmark, Search } from "lucide-react";
 import { countries } from "../data/countries";
 
 export default function LandingPage() {
@@ -41,7 +41,7 @@ export default function LandingPage() {
         </Link>
       </motion.div>
 
-      <main className="max-w-6xl w-full grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 gap-3 md:gap-6">
+      <main className="max-w-6xl w-full grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 md:gap-6">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -98,6 +98,21 @@ export default function LandingPage() {
                 <PawPrint className="w-6 h-6 md:w-8 md:h-8" />
               </div>
               <h2 className="text-sm md:text-lg font-bold">Animals</h2>
+            </div>
+          </Link>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.55 }}
+        >
+          <Link to="/birds" className="group block">
+            <div className="bg-white dark:bg-[#1a1d23] p-4 md:p-6 rounded-2xl md:rounded-[32px] border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-xl hover:border-orange-100 dark:hover:border-orange-900 transition-all duration-500 flex flex-col items-center text-center h-full">
+              <div className="w-12 h-12 md:w-16 md:h-16 bg-orange-50 dark:bg-orange-900/20 rounded-xl md:rounded-2xl flex items-center justify-center text-orange-600 dark:text-orange-400 mb-3 md:mb-4 group-hover:scale-110 transition-transform duration-500">
+                <Bird className="w-6 h-6 md:w-8 md:h-8" />
+              </div>
+              <h2 className="text-sm md:text-lg font-bold">Birds</h2>
             </div>
           </Link>
         </motion.div>
