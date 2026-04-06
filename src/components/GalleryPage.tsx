@@ -1,16 +1,17 @@
-import { useState, ChangeEvent, useEffect, useRef, useCallback } from 'react';
+import { useState, ChangeEvent, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from "motion/react";
-import { Loader2, Image as ImageIcon, PawPrint, Bird, Upload, Trash2, ArrowLeft, Flag, Banknote, Flower2, LogIn, LogOut, Trophy, Landmark, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, Image as ImageIcon, PawPrint, Bird, Upload, Trash2, ArrowLeft, Flag, Banknote, Flower2, LogIn, LogOut, Trophy, Landmark, Search, ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { countries } from "../data/countries";
 import { useFirebase } from './FirebaseProvider';
-import { doc, onSnapshot, setDoc, serverTimestamp, collection, getDocs, deleteDoc, writeBatch } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, collection, getDocs, getDoc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 import { compressImage } from '../lib/image-utils';
 import { useNavigation } from './NavigationLayout';
 import { useAutoScroll } from './AutoScrollProvider';
 import { useSound } from './SoundProvider';
+import { getCachedImage, setCachedImage, setBulkCachedImages } from '../lib/cache';
 
 interface GalleryPageProps {
   type: 'animals' | 'birds' | 'flags' | 'currencies' | 'flowers' | 'sports' | 'capitals';
@@ -27,8 +28,8 @@ const SearchInput = ({
   setSearchQuery: (val: string) => void;
   setCurrentPage: (val: number) => void;
 }) => (
-  <div className={`relative group ${compact ? 'w-32' : 'w-32 md:w-48'}`}>
-    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+  <div className={`relative group ${compact ? 'w-24 md:w-32' : 'w-32 md:w-48'}`}>
+    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
     <input
       type="text"
       placeholder="Search..."
@@ -37,7 +38,7 @@ const SearchInput = ({
         setSearchQuery(e.target.value);
         setCurrentPage(1);
       }}
-      className="w-full pl-9 pr-10 py-2 bg-white dark:bg-[#1a1d23] border border-gray-100 dark:border-gray-800 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm"
+      className="w-full pl-7 pr-7 py-1 bg-white dark:bg-[#1a1d23] border border-gray-100 dark:border-gray-800 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-[10px] md:text-sm"
     />
     {searchQuery && (
       <button
@@ -45,9 +46,9 @@ const SearchInput = ({
           setSearchQuery("");
           setCurrentPage(1);
         }}
-        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1"
+        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1"
       >
-        <Trash2 className="w-3 h-3" />
+        <Trash2 className="w-2.5 h-2.5" />
       </button>
     )}
   </div>
@@ -57,14 +58,29 @@ export default function GalleryPage({ type }: GalleryPageProps) {
   const navigate = useNavigate();
   const { user, loading: authLoading, signIn, logout } = useFirebase();
   const { setCustomHandlers } = useNavigation();
-  const { playSound, narrationEnabled } = useSound();
+  const { playSound, narrationEnabled, replayCounter, replayNarration } = useSound();
   const { autoScrollEnabled, setAutoScrollEnabled, autoScrollDelay } = useAutoScroll();
   const [images, setImages] = useState<{ [key: string]: string }>({});
   const [uploading, setUploading] = useState(false);
-  const [selectedLetter, setSelectedLetter] = useState<string | null>("A");
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth <= 1280 : false);
+  const [isLandscape, setIsLandscape] = useState(typeof window !== 'undefined' ? window.innerWidth > window.innerHeight : false);
+  const [selectedLetter, setSelectedLetter] = useState<string | null>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const itemsPerPage = useMemo(() => {
+    if (selectedLetter !== "ALL") return 20;
+    if (isMobile) {
+      if (isLandscape) {
+        if (type === 'flags') return 12; // 4 columns x 3 rows
+        return 8; // 4 columns x 2 rows
+      } else {
+        if (type === 'flags') return 12; // 3 columns x 4 rows
+        return 9; // 3 columns x 3 rows
+      }
+    }
+    if (type === 'flags') return 12; // 4 columns x 3 rows
+    return 10; // 5 columns x 2 rows
+  }, [isMobile, isLandscape, selectedLetter, type]);
   const [selectedItems, setSelectedItems] = useState<{ [key: string]: string }>(
     Object.fromEntries(countries.map(c => [
       c.name, 
@@ -74,10 +90,11 @@ export default function GalleryPage({ type }: GalleryPageProps) {
   const galleryRef = useRef<HTMLElement>(null);
   const [narratingCountry, setNarratingCountry] = useState<string | null>(null);
 
-  const [isMobile, setIsMobile] = useState(false);
-
   useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth <= 1280);
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 1280);
+      setIsLandscape(window.innerWidth > window.innerHeight);
+    };
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
@@ -92,39 +109,84 @@ export default function GalleryPage({ type }: GalleryPageProps) {
     );
   }, [type]);
 
+  // Base filtered countries (only by type, used for consistent totals)
+  const baseFilteredCountries = useMemo(() => countries.filter(c => {
+    if (type === 'flowers' && (!c.flowers || c.flowers.length === 0)) return false;
+    if (type === 'animals' && (!c.animals || c.animals.length === 0)) return false;
+    if (type === 'birds' && (!c.birds || c.birds.length === 0)) return false;
+    if (type === 'sports' && (!c.sports || c.sports.length === 0)) return false;
+    if (type === 'currencies' && (!c.currencies || c.currencies.length === 0)) return false;
+    if (type === 'capitals' && !c.capital) return false;
+    return true;
+  }), [type]);
+
+  const alphabet = ["ALL", ...Array.from("ABCDEFGHIJKLMNOPQRSTUVWXYZ")];
+  const availableLetters = ["ALL", ...Array.from(new Set(baseFilteredCountries.map(c => c.name.trim()[0].toUpperCase()))).sort()];
+
+  const currentIndex = selectedLetter ? alphabet.indexOf(selectedLetter) : -1;
+  const prevLetter = currentIndex > 0 ? alphabet[currentIndex - 1] : null;
+  const nextLetter = currentIndex < alphabet.length - 1 ? alphabet[currentIndex + 1] : null;
+
+  const filteredCountries = useMemo(() => baseFilteredCountries.filter(c => {
+    const countryName = c.name.trim();
+    const matchesSearch = countryName.toLowerCase().includes(searchQuery.toLowerCase());
+    if (searchQuery) return matchesSearch;
+    
+    const matchesLetter = !selectedLetter || selectedLetter === "ALL" || countryName.toUpperCase().startsWith(selectedLetter.toUpperCase());
+    return matchesSearch && matchesLetter;
+  }), [baseFilteredCountries, searchQuery, selectedLetter]);
+
+  const totalPages = selectedLetter === "ALL" ? Math.ceil(filteredCountries.length / itemsPerPage) : 1;
+  const paginatedCountries = useMemo(() => 
+    selectedLetter === "ALL" 
+      ? filteredCountries.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+      : filteredCountries,
+    [filteredCountries, selectedLetter, currentPage, itemsPerPage]
+  );
+
   // Load images from Firestore
   useEffect(() => {
-    const collPath = `global_collections/${type}/images`;
-    const collRef = collection(db, 'global_collections', type, 'images');
-    
-    // Listen to the subcollection for real-time updates
-    const unsubscribe = onSnapshot(collRef, (snapshot) => {
-      const newImages: { [key: string]: string } = {};
-      snapshot.forEach((doc) => {
-        newImages[doc.id] = doc.data().image;
-      });
+    const fetchImages = async () => {
+      const collPath = `global_collections/${type}/images`;
+      const collRef = collection(db, 'global_collections', type, 'images');
+      const legacyDocRef = doc(db, 'global_collections', type);
       
-      // If we have images in the subcollection, use them
-      if (Object.keys(newImages).length > 0) {
-        setImages(newImages);
-      } else {
-        // Otherwise check the legacy document once for migration
-        const docRef = doc(db, 'global_collections', type);
-        onSnapshot(docRef, (docSnap) => {
-          if (docSnap.exists() && docSnap.data().images) {
-            setImages(docSnap.data().images);
-          } else {
-            setImages({});
-          }
-        }, (error) => {
-          handleFirestoreError(error, OperationType.GET, `global_collections/${type}`);
-        });
-      }
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, collPath);
-    });
+      try {
+        // First check cache
+        const cached = getCachedImage(type, 'ALL_IMAGES');
+        if (cached) {
+          // This is a bit of a hack to store all images in one cache key if we want
+          // But let's just use the existing setBulkCachedImages logic
+        }
 
-    return () => unsubscribe();
+        // Fetch from subcollection
+        const snapshot = await getDocs(collRef);
+        const newImages: { [key: string]: string } = {};
+        snapshot.forEach((doc) => {
+          newImages[doc.id] = doc.data().image;
+        });
+        
+        if (Object.keys(newImages).length > 0) {
+          setImages(newImages);
+          setBulkCachedImages(type, newImages);
+        }
+
+        // Also check legacy document
+        const docSnap = await getDoc(legacyDocRef);
+        if (docSnap.exists() && docSnap.data().images) {
+          const legacyImages = docSnap.data().images;
+          setImages(prev => ({ ...legacyImages, ...prev }));
+          setBulkCachedImages(type, legacyImages);
+        }
+      } catch (error: any) {
+        // Only log if it's not a quota error
+        if (!error.message.includes('Quota')) {
+          handleFirestoreError(error, OperationType.GET, collPath);
+        }
+      }
+    };
+
+    fetchImages();
   }, [type]);
 
   // Scroll to top of gallery when letter changes
@@ -164,36 +226,98 @@ export default function GalleryPage({ type }: GalleryPageProps) {
         updatedAt: serverTimestamp(),
         lastUpdatedBy: user?.uid || 'anonymous'
       });
+      // Manually update local state and cache since we removed onSnapshot
+      setImages(prev => ({ ...prev, [countryName]: base64 }));
+      setCachedImage(type, countryName, base64);
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, docPath);
     }
   };
 
-  const alphabet = ["ALL", ...Array.from("ABCDEFGHIJKLMNOPQRSTUVWXYZ")];
-  const availableLetters = ["ALL", ...Array.from(new Set(countries.map(c => c.name.trim()[0].toUpperCase()))).sort()];
+  const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
 
-  const currentIndex = selectedLetter ? alphabet.indexOf(selectedLetter) : -1;
-  const prevLetter = currentIndex > 0 ? alphabet[currentIndex - 1] : null;
-  const nextLetter = currentIndex < alphabet.length - 1 ? alphabet[currentIndex + 1] : null;
-
-  const filteredCountries = countries.filter(c => {
-    // Filter out countries with no data for specific types
-    if (type === 'flowers' && (!c.flowers || c.flowers.length === 0)) return false;
-    if (type === 'animals' && (!c.animals || c.animals.length === 0)) return false;
-    if (type === 'birds' && (!c.birds || c.birds.length === 0)) return false;
-
-    const countryName = c.name.trim();
-    const matchesSearch = countryName.toLowerCase().includes(searchQuery.toLowerCase());
-    if (searchQuery) return matchesSearch;
+    setUploading(true);
+    const fileList = Array.from(files) as File[];
     
-    const matchesLetter = !selectedLetter || selectedLetter === "ALL" || countryName.toUpperCase().startsWith(selectedLetter.toUpperCase());
-    return matchesSearch && matchesLetter;
-  });
+    await Promise.all(fileList.map(async (file) => {
+      const fileName = file.name.toLowerCase();
+      const sortedCountries = [...countries].sort((a, b) => b.name.length - a.name.length);
+      const matchedCountry = sortedCountries.find(c => 
+        fileName.includes(c.name.toLowerCase())
+      );
 
-  const totalPages = selectedLetter === "ALL" ? Math.ceil(filteredCountries.length / itemsPerPage) : 1;
-  const paginatedCountries = selectedLetter === "ALL" 
-    ? filteredCountries.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
-    : filteredCountries;
+      if (matchedCountry) {
+        try {
+          const compressedBase64 = await compressImage(file, 800, 800, 0.7);
+          await saveImage(matchedCountry.name, compressedBase64);
+        } catch (error) {
+          console.error("Error compressing/saving image", error);
+        }
+      }
+    }));
+    
+    setUploading(false);
+    e.target.value = '';
+  };
+
+  const removeImage = async (countryName: string) => {
+    const docPath = `global_collections/${type}/images/${countryName}`;
+    try {
+      await deleteDoc(doc(db, 'global_collections', type, 'images', countryName));
+      
+      // Also check legacy document and remove from there if it exists
+      const docRef = doc(db, 'global_collections', type);
+      await setDoc(docRef, { images: { [countryName]: null } }, { merge: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, docPath);
+    }
+  };
+
+  const clearAll = async () => {
+    const typeLabel = type === 'animals' ? 'animal photos' : type === 'birds' ? 'bird photos' : type === 'flags' ? 'flags' : type === 'currencies' ? 'currency photos' : type === 'flowers' ? 'flower photos' : type === 'sports' ? 'sports photos' : 'capital photos';
+    if (window.confirm(`Are you sure you want to clear all uploaded ${typeLabel}?`)) {
+      try {
+        const collRef = collection(db, 'global_collections', type, 'images');
+        const snapshot = await getDocs(collRef);
+        const batch = writeBatch(db);
+        snapshot.forEach((doc) => {
+          batch.delete(doc.ref);
+        });
+        await batch.commit();
+        
+        // Also clear legacy document
+        await setDoc(doc(db, 'global_collections', type), { images: {} }, { merge: true });
+      } catch (error) {
+        console.error("Error clearing images", error);
+      }
+    }
+  };
+
+  const getIcon = () => {
+    switch (type) {
+      case 'animals': return <PawPrint className="w-5 h-5 mr-2" />;
+      case 'birds': return <Bird className="w-5 h-5 mr-2" />;
+      case 'flags': return <Flag className="w-5 h-5 mr-2" />;
+      case 'currencies': return <Banknote className="w-5 h-5 mr-2" />;
+      case 'flowers': return <Flower2 className="w-5 h-5 mr-2" />;
+      case 'sports': return <Trophy className="w-5 h-5 mr-2" />;
+      case 'capitals': return <Landmark className="w-5 h-5 mr-2" />;
+    }
+  };
+
+  const getCollectionLabel = () => {
+    switch (type) {
+      case 'animals': return 'Wildlife Collection';
+      case 'birds': return 'Avian Collection';
+      case 'flags': return 'Vexillology Collection';
+      case 'currencies': return 'Numismatic Collection';
+      case 'flowers': return 'Botanical Collection';
+      case 'sports': return 'Athletic Collection';
+      case 'capitals': return 'Metropolitan Collection';
+    }
+  };
 
   const autoScrollRef = useRef(autoScrollEnabled);
   useEffect(() => {
@@ -376,7 +500,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
       window.speechSynthesis.cancel();
       setNarratingCountry(null);
     };
-  }, [type, currentPage, selectedLetter, totalPages, narrationEnabled, navigate, setAutoScrollEnabled, searchQuery, nextLetter]);
+  }, [type, currentPage, selectedLetter, totalPages, narrationEnabled, navigate, setAutoScrollEnabled, searchQuery, nextLetter, replayCounter]);
 
   const [gridConfig, setGridConfig] = useState<{ cols: number; rows: number }>(() => {
     try {
@@ -408,8 +532,8 @@ export default function GalleryPage({ type }: GalleryPageProps) {
     let bestCols = baseCols;
 
     if (selectedLetter !== "ALL") {
-      if (type === 'flags' && !isMobile) {
-        // Dynamic grid for Flags based on height to fill empty space
+      if (!isMobile) {
+        // Dynamic grid based on height to fill empty space
         const headerHeight = 180; // Approximate header + alphabet height
         const availableHeight = window.innerHeight - headerHeight;
         const availableWidth = Math.min(window.innerWidth, 1280) - 64; // max-w-7xl + padding
@@ -418,12 +542,15 @@ export default function GalleryPage({ type }: GalleryPageProps) {
         let fitCols = baseCols;
         
         // Test a range of columns to find the best vertical fit
-        // For flags (16:9), we want to fill the height without excessive scrolling
+        // For flags (16:9), aspect is 0.5625. For others (1:1), aspect is 1.0
+        const aspectRatio = type === 'flags' ? 0.5625 : 1.0;
+        const labelHeight = type === 'flags' ? 50 : 80; // Flags have smaller labels, others have more info
+        
         const testRange = [2, 3, 4, 5, 6, 7, 8];
         for (const c of testRange) {
           const rows = Math.ceil(count / c);
           const cardWidth = availableWidth / c;
-          const cardHeight = (cardWidth * 0.5625) + 50; // 16:9 + label/padding
+          const cardHeight = (cardWidth * aspectRatio) + labelHeight;
           const totalHeight = rows * cardHeight;
           
           // We prefer filling the height or being slightly over (scrollable) 
@@ -436,44 +563,16 @@ export default function GalleryPage({ type }: GalleryPageProps) {
           }
         }
         bestCols = fitCols;
-      } else if (baseCols >= 4 && selectedLetter === 'U') {
-        bestCols = 4; // 7 items -> 2 rows of 4 and 3
-      } else if (count <= baseCols) {
-        bestCols = Math.max(2, count);
       } else {
-        // For A-Z mode, try to balance the last row to avoid orphans
-        // Check a small range around the base columns
-        const minCols = Math.max(2, baseCols - 1);
-        const maxCols = Math.min(8, baseCols + 1);
-        
-        let minEmpty = 999;
-        let balancedCols = baseCols;
-        
-        for (let c = minCols; c <= maxCols; c++) {
-          const empty = (c - (count % c)) % c;
-          if (empty < minEmpty) {
-            minEmpty = empty;
-            balancedCols = c;
-          } else if (empty === minEmpty) {
-            // If tied, prefer the one closer to baseCols
-            if (Math.abs(c - baseCols) < Math.abs(balancedCols - baseCols)) {
-              balancedCols = c;
-            } else if (Math.abs(c - baseCols) === Math.abs(balancedCols - baseCols)) {
-              // If still tied, prefer fewer columns (larger items) to fill space better
-              if (c < balancedCols) {
-                balancedCols = c;
-              }
-            }
-          }
-        }
-        bestCols = balancedCols;
+        // Mobile mode: 3 columns if more than 5 countries, else 2
+        bestCols = count > 5 ? 3 : 2;
       }
     }
 
     const newConfig = { cols: bestCols, rows: Math.ceil(count / bestCols) };
     setGridConfig(newConfig);
     localStorage.setItem(`gallery-grid-${type}`, JSON.stringify(newConfig));
-  }, [paginatedCountries.length, selectedLetter, type]);
+  }, [paginatedCountries.length, selectedLetter, type, isMobile]);
 
   useEffect(() => {
     updateGridConfig();
@@ -539,103 +638,6 @@ export default function GalleryPage({ type }: GalleryPageProps) {
     return () => setCustomHandlers(null);
   }, [selectedLetter, currentPage, totalPages, setCustomHandlers, prevLetter, nextLetter]);
 
-  const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-
-    setUploading(true);
-    const fileList = Array.from(files) as File[];
-    
-    await Promise.all(fileList.map(async (file) => {
-      const fileName = file.name.toLowerCase();
-      const sortedCountries = [...countries].sort((a, b) => b.name.length - a.name.length);
-      const matchedCountry = sortedCountries.find(c => 
-        fileName.includes(c.name.toLowerCase())
-      );
-
-      if (matchedCountry) {
-        try {
-          const compressedBase64 = await compressImage(file, 800, 800, 0.7);
-          await saveImage(matchedCountry.name, compressedBase64);
-        } catch (error) {
-          console.error("Error compressing/saving image", error);
-        }
-      }
-    }));
-    
-    setUploading(false);
-    e.target.value = '';
-  };
-
-  const removeImage = async (countryName: string) => {
-    const docPath = `global_collections/${type}/images/${countryName}`;
-    try {
-      await deleteDoc(doc(db, 'global_collections', type, 'images', countryName));
-      
-      // Also check legacy document and remove from there if it exists
-      const docRef = doc(db, 'global_collections', type);
-      await setDoc(docRef, { images: { [countryName]: null } }, { merge: true });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, docPath);
-    }
-  };
-
-  const clearAll = async () => {
-    const typeLabel = type === 'animals' ? 'animal photos' : type === 'birds' ? 'bird photos' : type === 'flags' ? 'flags' : type === 'currencies' ? 'currency photos' : type === 'flowers' ? 'flower photos' : type === 'sports' ? 'sports photos' : 'capital photos';
-    if (window.confirm(`Are you sure you want to clear all uploaded ${typeLabel}?`)) {
-      try {
-        const collRef = collection(db, 'global_collections', type, 'images');
-        const snapshot = await getDocs(collRef);
-        const batch = writeBatch(db);
-        snapshot.forEach((doc) => {
-          batch.delete(doc.ref);
-        });
-        await batch.commit();
-        
-        // Also clear legacy document
-        await setDoc(doc(db, 'global_collections', type), { images: {} }, { merge: true });
-      } catch (error) {
-        console.error("Error clearing images", error);
-      }
-    }
-  };
-
-  const getIcon = () => {
-    switch (type) {
-      case 'animals': return <PawPrint className="w-5 h-5 mr-2" />;
-      case 'birds': return <Bird className="w-5 h-5 mr-2" />;
-      case 'flags': return <Flag className="w-5 h-5 mr-2" />;
-      case 'currencies': return <Banknote className="w-5 h-5 mr-2" />;
-      case 'flowers': return <Flower2 className="w-5 h-5 mr-2" />;
-      case 'sports': return <Trophy className="w-5 h-5 mr-2" />;
-      case 'capitals': return <Landmark className="w-5 h-5 mr-2" />;
-    }
-  };
-
-  const getCollectionLabel = () => {
-    switch (type) {
-      case 'animals': return 'Wildlife Collection';
-      case 'birds': return 'Avian Collection';
-      case 'flags': return 'Vexillology Collection';
-      case 'currencies': return 'Numismatic Collection';
-      case 'flowers': return 'Botanical Collection';
-      case 'sports': return 'Athletic Collection';
-      case 'capitals': return 'Metropolitan Collection';
-    }
-  };
-
-  const getDescription = () => {
-    switch (type) {
-      case 'animals': return "Build your personal collection by uploading animal photos. Name your files with the country name for automatic matching.";
-      case 'birds': return "Build your personal collection by uploading bird photos. Name your files with the country name for automatic matching.";
-      case 'flags': return "Create your digital flag collection. Upload flag images named after their respective countries for automatic organization.";
-      case 'currencies': return "Curate your digital currency collection. Upload banknote or coin images named after their respective countries.";
-      case 'flowers': return "Discover the world's national flowers. Upload photos of symbolic flora named after their respective countries.";
-      case 'sports': return "Explore national sports from around the globe. Upload photos of athletes or sporting events named after their respective countries.";
-      case 'capitals': return "Explore the world's capital cities. Upload photos of landmarks or cityscapes named after their respective countries.";
-    }
-  };
-
   const lettersOnly = Array.from("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
   const row1 = lettersOnly.slice(0, 13);
   const row2 = lettersOnly.slice(13);
@@ -687,15 +689,22 @@ export default function GalleryPage({ type }: GalleryPageProps) {
 
   const getGridConfig = () => {
     if (selectedLetter === "ALL") {
+      if (isMobile) {
+        if (isLandscape) {
+          if (type === 'flags') {
+            return { className: "grid-cols-4 gap-0.5", style: {} };
+          }
+          return { className: "grid-cols-4 gap-0.5", style: {} };
+        } else {
+          if (type === 'flags') {
+            return { className: "grid-cols-3 gap-0.5", style: {} };
+          }
+          return { className: "grid-cols-3 gap-0.5", style: {} };
+        }
+      }
       if (type === 'flags') {
         return {
           className: "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 gap-4 md:gap-6",
-          style: {}
-        };
-      }
-      if (type === 'flowers') {
-        return {
-          className: "grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-7 gap-2 md:gap-3",
           style: {}
         };
       }
@@ -723,10 +732,10 @@ export default function GalleryPage({ type }: GalleryPageProps) {
   }
 
   return (
-    <div className={`${isMobile ? 'min-h-screen' : 'h-screen overflow-hidden'} flex flex-col p-2 md:p-4`}>
-      <header className="max-w-6xl mx-auto mb-2 w-full">
+    <div className={`${isMobile ? 'min-h-screen' : 'h-screen overflow-hidden'} flex flex-col ${isMobile ? 'p-0.5' : 'p-2 md:p-4'}`}>
+      <header className={`max-w-6xl mx-auto ${isMobile ? 'mb-0.5' : 'mb-2'} w-full`}>
         <div className="flex flex-col items-center">
-          <div className="flex items-center justify-between w-full mb-2">
+          <div className={`flex items-center justify-between w-full ${isMobile ? 'mb-0.5' : 'mb-2'}`}>
             <div className="flex items-center gap-2">
               <motion.div
                 initial={{ opacity: 0, x: -10 }}
@@ -777,9 +786,9 @@ export default function GalleryPage({ type }: GalleryPageProps) {
           </div>
 
           {selectedLetter === "ALL" ? (
-            <div className="w-full flex flex-row lg:flex-row items-center justify-center gap-3 lg:gap-6 px-2 gallery-header-responsive">
-              <div className="w-full lg:w-auto flex items-center justify-between lg:justify-start gap-3 gallery-search-section">
-                <div className="flex items-center gap-1.5">
+            <div className={`w-full flex flex-row lg:flex-row items-center justify-between ${isMobile ? 'gap-1' : 'gap-3 lg:gap-6'} px-2 gallery-header-responsive`}>
+              <div className={`w-full lg:w-auto flex items-center justify-between lg:justify-start ${isMobile ? 'gap-1' : 'gap-3'} gallery-search-section`}>
+                <div className="flex items-center gap-1">
                   <SearchInput 
                     compact 
                     searchQuery={searchQuery} 
@@ -792,18 +801,18 @@ export default function GalleryPage({ type }: GalleryPageProps) {
                       setSearchQuery("");
                       setCurrentPage(1);
                     }}
-                    className={`w-8 h-8 rounded-lg text-xs font-bold transition-all flex items-center justify-center ${getLetterStyles("ALL")}`}
+                    className={`${isMobile ? 'w-6 h-6' : 'w-8 h-8'} rounded-lg text-[10px] font-bold transition-all flex items-center justify-center ${getLetterStyles("ALL")}`}
                   >
                     ALL
                   </button>
                 </div>
                 
-                <div className="flex lg:hidden items-center gap-3 gallery-stats-mobile">
-                  <div className="flex flex-col items-center justify-center shrink-0 bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded-lg border border-blue-100 dark:border-blue-900/30">
-                    <span className="text-[7px] font-bold text-blue-500 dark:text-blue-400 uppercase tracking-wider">Total</span>
-                    <span className="text-xs font-black text-blue-700 dark:text-blue-300 leading-none">{filteredCountries.length}</span>
+                <div className="flex lg:hidden items-center gap-1 gallery-stats-mobile">
+                  <div className="flex flex-col items-center justify-center shrink-0 bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded-lg border border-blue-100 dark:border-blue-900/30">
+                    <span className="text-[10px] font-black text-blue-700 dark:text-blue-300 leading-none">
+                      {`${(currentPage - 1) * itemsPerPage + 1}-${Math.min(currentPage * itemsPerPage, filteredCountries.length)} of ${baseFilteredCountries.length}`}
+                    </span>
                   </div>
-                  <PaginationControls />
                 </div>
               </div>
 
@@ -811,7 +820,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
                 initial={{ opacity: 0, x: 10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.3 }}
-                className="flex flex-col gap-1 lg:border-l border-gray-100 dark:border-gray-800 lg:pl-3 md:pl-6 w-full lg:w-auto overflow-x-auto no-scrollbar gallery-alphabet-container"
+                className={`flex flex-col gap-1 lg:border-l border-gray-100 dark:border-gray-800 lg:pl-3 md:pl-6 w-full lg:w-auto overflow-x-auto no-scrollbar gallery-alphabet-container ${isMobile ? 'hidden' : ''}`}
               >
                 <div className="flex flex-wrap justify-center gap-0.5 min-w-0 gallery-alphabet-row">
                   {lettersOnly.map(letter => (
@@ -833,14 +842,14 @@ export default function GalleryPage({ type }: GalleryPageProps) {
 
               <div className="hidden lg:flex items-center gap-3 border-l border-gray-100 dark:border-gray-800 pl-3 md:pl-6 gallery-stats-desktop">
                 <div className="flex flex-col items-center justify-center shrink-0 bg-blue-50 dark:bg-blue-900/20 px-3 py-1.5 rounded-xl border border-blue-100 dark:border-blue-900/30">
-                  <span className="text-[8px] md:text-[10px] font-bold text-blue-500 dark:text-blue-400 uppercase tracking-wider mb-0.5">Total</span>
-                  <span className="text-sm md:text-xl font-black text-blue-700 dark:text-blue-300 leading-none">{filteredCountries.length}</span>
+                  <span className="text-sm md:text-xl font-black text-blue-700 dark:text-blue-300 leading-none">
+                    {`${(currentPage - 1) * itemsPerPage + 1}-${Math.min(currentPage * itemsPerPage, filteredCountries.length)} of ${baseFilteredCountries.length}`}
+                  </span>
                 </div>
-                <PaginationControls />
               </div>
             </div>
           ) : (
-            <div className="w-full flex flex-row lg:flex-row items-center justify-center gap-3 lg:gap-6 px-2 gallery-header-responsive">
+            <div className="w-full flex flex-row lg:flex-row items-center justify-between gap-3 lg:gap-6 px-2 gallery-header-responsive">
               <div className="w-full lg:w-auto flex items-center justify-between lg:justify-start gap-3 gallery-search-section">
                 <div className="flex items-center gap-1.5">
                   <SearchInput 
@@ -863,8 +872,9 @@ export default function GalleryPage({ type }: GalleryPageProps) {
 
                 <div className="flex lg:hidden items-center gap-3 gallery-stats-mobile">
                   <div className="bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded-lg border border-blue-100 dark:border-blue-900/30 flex flex-col items-center">
-                    <span className="text-[7px] font-bold text-blue-500 dark:text-blue-400 uppercase tracking-wider">Total</span>
-                    <span className="text-xs font-black text-blue-700 dark:text-blue-300 leading-none">{filteredCountries.length}</span>
+                    <span className="text-xs font-black text-blue-700 dark:text-blue-300 leading-none">
+                      {`${filteredCountries.length} of ${baseFilteredCountries.length}`}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -895,8 +905,9 @@ export default function GalleryPage({ type }: GalleryPageProps) {
 
               <div className="hidden lg:flex flex-col items-center justify-center shrink-0 border-l border-gray-100 dark:border-gray-800 pl-3 md:pl-6 gallery-stats-desktop">
                 <div className="bg-blue-50 dark:bg-blue-900/20 px-3 py-1.5 rounded-xl border border-blue-100 dark:border-blue-900/30 flex flex-col items-center">
-                  <span className="text-[8px] md:text-[10px] font-bold text-blue-500 dark:text-blue-400 uppercase tracking-wider mb-0.5">Total</span>
-                  <span className="text-sm md:text-xl font-black text-blue-700 dark:text-blue-300 leading-none">{filteredCountries.length}</span>
+                  <span className="text-sm md:text-xl font-black text-blue-700 dark:text-blue-300 leading-none">
+                    {`${filteredCountries.length} of ${baseFilteredCountries.length}`}
+                  </span>
                 </div>
               </div>
             </div>
@@ -904,7 +915,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
         </div>
       </header>
 
-      <main ref={galleryRef} className="flex-grow max-w-7xl mx-auto px-4 w-full pb-4">
+      <main ref={galleryRef} className={`flex-grow max-w-7xl mx-auto ${isMobile ? 'px-1' : 'px-4'} w-full pb-2`}>
         {paginatedCountries.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-gray-400 dark:text-gray-600">
             <Search className="w-12 h-12 mb-4 opacity-20" />
@@ -934,7 +945,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
               transition={{ duration: 0.3 }}
-              className={`group bg-white dark:bg-[#1a1d23] rounded-xl md:rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-500 border border-gray-100 dark:border-gray-800 flex flex-col ${narratingCountry === country.name ? 'ring-4 ring-blue-500 dark:ring-blue-400 scale-[1.15] md:scale-[1.25] shadow-2xl z-50' : (selectedLetter !== "ALL" ? 'scale-95' : '')}`}
+              className={`group bg-white dark:bg-[#1a1d23] rounded-xl md:rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-500 border border-gray-100 dark:border-gray-800 flex flex-col ${narratingCountry === country.name ? 'ring-4 ring-blue-500 dark:ring-blue-400 scale-[1.15] md:scale-[1.6] shadow-2xl z-50' : (selectedLetter !== "ALL" ? 'scale-95' : '')}`}
             >
               <div className={`relative ${type === 'flags' ? 'aspect-video' : 'aspect-square'} bg-gray-50 dark:bg-gray-900/50 flex items-center justify-center overflow-hidden`}>
                 <AnimatePresence mode="wait">
@@ -974,24 +985,24 @@ export default function GalleryPage({ type }: GalleryPageProps) {
                 </AnimatePresence>
               </div>
 
-              <div className={`${selectedLetter !== "ALL" ? 'p-1.5' : 'p-3'} flex-grow flex flex-col items-center text-center`}>
-                <p className={`${selectedLetter !== "ALL" ? 'text-[10px] md:text-xs' : 'text-sm md:text-base'} font-black text-gray-800 dark:text-gray-100 mb-1 truncate w-full`}>
+              <div className={`${isMobile && selectedLetter === "ALL" ? 'p-1' : (selectedLetter !== "ALL" ? 'p-1.5' : 'p-3')} flex-grow flex flex-col items-center text-center`}>
+                <p className={`${isMobile && selectedLetter === "ALL" ? 'text-[9px]' : (selectedLetter !== "ALL" ? 'text-[10px] md:text-xs' : 'text-sm md:text-base')} font-black text-gray-800 dark:text-gray-100 mb-0.5 truncate w-full`}>
                   {country.name}
                 </p>
                 {(type === 'animals' || type === 'birds' || type === 'currencies' || type === 'flowers' || type === 'sports' || type === 'capitals') ? (
-                  <div className="w-full flex flex-col gap-1 mt-auto">
+                  <div className={`w-full flex flex-col ${isMobile && selectedLetter === "ALL" ? 'gap-0.5' : 'gap-1'} mt-auto`}>
                     {(() => {
                       const items = type === 'animals' ? country.animals : type === 'birds' ? country.birds : type === 'currencies' ? country.currencies : type === 'flowers' ? country.flowers : type === 'sports' ? country.sports : [country.capital].filter(Boolean);
                       if (items.length === 0) {
                         return <span className="text-[7px] text-gray-400 dark:text-gray-500 italic">No data</span>;
                       }
-                      return items.slice(0, 2).map((item, idx) => (
+                      return items.slice(0, 1).map((item, idx) => (
                         <div
                           key={item}
-                          className={`px-2 py-1 rounded-lg text-center transition-all ${
+                          className={`px-1 py-0.5 rounded-md text-center transition-all ${
                             idx === 0
-                              ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 font-black text-[9px] md:text-[11px] uppercase tracking-tight border border-blue-100/50 dark:border-blue-900/30'
-                              : 'text-gray-500 dark:text-gray-400 font-bold italic text-[8px] md:text-[10px] opacity-80'
+                              ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 font-black text-[8px] md:text-[11px] uppercase tracking-tight border border-blue-100/50 dark:border-blue-900/30'
+                              : 'text-gray-500 dark:text-gray-400 font-bold italic text-[7px] md:text-[10px] opacity-80'
                           }`}
                         >
                           <span className="truncate block">{item}</span>
@@ -1005,6 +1016,11 @@ export default function GalleryPage({ type }: GalleryPageProps) {
           ))}
         </AnimatePresence>
       </div>
+      )}
+      {selectedLetter === "ALL" && totalPages > 1 && (
+        <div className={`flex justify-center ${isMobile ? 'py-1 mt-1' : 'py-6 mt-8'} border-t border-gray-100 dark:border-gray-800`}>
+          <PaginationControls />
+        </div>
       )}
     </main>
     </div>

@@ -6,6 +6,8 @@ interface SoundContextType {
   narrationEnabled: boolean;
   setNarrationEnabled: (enabled: boolean) => void;
   playSound: (type: string) => void;
+  replayCounter: number;
+  replayNarration: () => void;
 }
 
 const SoundContext = createContext<SoundContextType | undefined>(undefined);
@@ -43,6 +45,8 @@ export const SoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const saved = localStorage.getItem('narrationEnabled');
     return saved !== null ? JSON.parse(saved) : true;
   });
+
+  const [replayCounter, setReplayCounter] = useState(0);
 
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
 
@@ -95,8 +99,13 @@ export const SoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [soundEnabled]);
 
+  const replayNarration = useCallback(() => {
+    window.speechSynthesis.cancel();
+    setReplayCounter(prev => prev + 1);
+  }, []);
+
   return (
-    <SoundContext.Provider value={{ soundEnabled, setSoundEnabled, narrationEnabled, setNarrationEnabled, playSound }}>
+    <SoundContext.Provider value={{ soundEnabled, setSoundEnabled, narrationEnabled, setNarrationEnabled, playSound, replayCounter, replayNarration }}>
       {children}
     </SoundContext.Provider>
   );

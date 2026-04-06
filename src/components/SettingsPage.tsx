@@ -51,7 +51,7 @@ export default function SettingsPage() {
         >
           <div>
             <h2 className="text-lg font-bold mb-1">Appearance</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Toggle between light and dark mode</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Light or dark mode</p>
           </div>
           <button
             onClick={toggleTheme}
@@ -71,7 +71,7 @@ export default function SettingsPage() {
         >
           <div>
             <h2 className="text-lg font-bold mb-1">Sound Effects</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Enable or disable page transition sounds</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Page transition sounds</p>
           </div>
           <button
             onClick={() => setSoundEnabled(!soundEnabled)}
@@ -95,7 +95,7 @@ export default function SettingsPage() {
         >
           <div>
             <h2 className="text-lg font-bold mb-1">Voice Narration</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Read country details aloud on page load</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Read details aloud</p>
           </div>
           <button
             onClick={() => setNarrationEnabled(!narrationEnabled)}
@@ -119,7 +119,7 @@ export default function SettingsPage() {
         >
           <div>
             <h2 className="text-lg font-bold mb-1">Auto-Scroll</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Automatically navigate through items</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Auto-navigation</p>
           </div>
           
           <div className="flex items-center gap-4">

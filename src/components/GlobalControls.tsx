@@ -1,19 +1,23 @@
 import { Link, useLocation, useSearchParams } from "react-router-dom";
-import { Home, Search, Settings, ArrowLeft } from "lucide-react";
+import { Home, Search, Settings, ArrowLeft, RotateCcw } from "lucide-react";
+import { useSound } from "./SoundProvider";
 
 export default function GlobalControls() {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { narrationEnabled, replayNarration } = useSound();
   const isCountryDetail = location.pathname.startsWith('/countries/');
   const isQuiz = location.pathname === '/quiz';
   const quizCategory = searchParams.get('category');
 
   const isLanding = location.pathname === '/';
+  const isSearchCountries = location.pathname === '/countries';
+  const showReplay = narrationEnabled && !isLanding && !isQuiz && !isSearchCountries;
 
   return (
     <>
       {isLanding && (
-        <div className="fixed bottom-6 left-6 lg:top-6 lg:bottom-auto z-50">
+        <div className="fixed bottom-6 left-6 lg:top-6 lg:bottom-auto z-[110]">
           <Link
             to="/settings"
             className="p-3 bg-white dark:bg-[#1a1d23] border border-gray-100 dark:border-gray-800 rounded-2xl shadow-sm hover:shadow-md transition-all active:scale-95 text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 flex items-center justify-center"
@@ -23,7 +27,17 @@ export default function GlobalControls() {
           </Link>
         </div>
       )}
-      <div className="fixed bottom-6 right-6 lg:top-6 lg:bottom-auto z-50 flex items-center gap-3">
+      <div className="fixed bottom-6 right-6 lg:top-6 lg:bottom-auto z-[110] flex items-center gap-3">
+        {showReplay && (
+          <button
+            onClick={replayNarration}
+            className="p-3 bg-white dark:bg-[#1a1d23] border border-gray-100 dark:border-gray-800 rounded-2xl shadow-sm hover:shadow-md transition-all active:scale-95 text-blue-600 dark:text-blue-400"
+            aria-label="Replay Narration"
+            title="Replay Narration"
+          >
+            <RotateCcw className="w-5 h-5" />
+          </button>
+        )}
         {isQuiz && quizCategory && (
           <button
             onClick={() => setSearchParams({})}
