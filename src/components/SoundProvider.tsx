@@ -5,9 +5,13 @@ interface SoundContextType {
   setSoundEnabled: (enabled: boolean) => void;
   narrationEnabled: boolean;
   setNarrationEnabled: (enabled: boolean) => void;
+  isNarrationPaused: boolean;
+  setIsNarrationPaused: (paused: boolean) => void;
   playSound: (type: string) => void;
   replayCounter: number;
   replayNarration: () => void;
+  pauseNarration: () => void;
+  resumeNarration: () => void;
 }
 
 const SoundContext = createContext<SoundContextType | undefined>(undefined);
@@ -46,6 +50,7 @@ export const SoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return saved !== null ? JSON.parse(saved) : true;
   });
 
+  const [isNarrationPaused, setIsNarrationPaused] = useState(false);
   const [replayCounter, setReplayCounter] = useState(0);
 
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
@@ -101,11 +106,34 @@ export const SoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const replayNarration = useCallback(() => {
     window.speechSynthesis.cancel();
+    setIsNarrationPaused(false);
     setReplayCounter(prev => prev + 1);
   }, []);
 
+  const pauseNarration = useCallback(() => {
+    window.speechSynthesis.pause();
+    setIsNarrationPaused(true);
+  }, []);
+
+  const resumeNarration = useCallback(() => {
+    window.speechSynthesis.resume();
+    setIsNarrationPaused(false);
+  }, []);
+
   return (
-    <SoundContext.Provider value={{ soundEnabled, setSoundEnabled, narrationEnabled, setNarrationEnabled, playSound, replayCounter, replayNarration }}>
+    <SoundContext.Provider value={{ 
+      soundEnabled, 
+      setSoundEnabled, 
+      narrationEnabled, 
+      setNarrationEnabled, 
+      isNarrationPaused,
+      setIsNarrationPaused,
+      playSound, 
+      replayCounter, 
+      replayNarration,
+      pauseNarration,
+      resumeNarration
+    }}>
       {children}
     </SoundContext.Provider>
   );

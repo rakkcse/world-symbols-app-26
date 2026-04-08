@@ -1,11 +1,11 @@
 import { Link, useLocation, useSearchParams } from "react-router-dom";
-import { Home, Search, Settings, ArrowLeft, RotateCcw } from "lucide-react";
+import { Home, Search, Settings, ArrowLeft, RotateCcw, Play } from "lucide-react";
 import { useSound } from "./SoundProvider";
 
 export default function GlobalControls() {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { narrationEnabled, replayNarration } = useSound();
+  const { narrationEnabled, replayNarration, isNarrationPaused, resumeNarration } = useSound();
   const isCountryDetail = location.pathname.startsWith('/countries/');
   const isQuiz = location.pathname === '/quiz';
   const quizCategory = searchParams.get('category');
@@ -30,12 +30,12 @@ export default function GlobalControls() {
       <div className="fixed bottom-6 right-6 lg:top-6 lg:bottom-auto z-[110] flex items-center gap-3">
         {showReplay && (
           <button
-            onClick={replayNarration}
-            className="p-3 bg-white dark:bg-[#1a1d23] border border-gray-100 dark:border-gray-800 rounded-2xl shadow-sm hover:shadow-md transition-all active:scale-95 text-blue-600 dark:text-blue-400"
-            aria-label="Replay Narration"
-            title="Replay Narration"
+            onClick={isNarrationPaused ? resumeNarration : replayNarration}
+            className={`p-3 bg-white dark:bg-[#1a1d23] border border-gray-100 dark:border-gray-800 rounded-2xl shadow-sm hover:shadow-md transition-all active:scale-95 ${isNarrationPaused ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'}`}
+            aria-label={isNarrationPaused ? "Resume Narration" : "Replay Narration"}
+            title={isNarrationPaused ? "Resume Narration" : "Replay Narration"}
           >
-            <RotateCcw className="w-5 h-5" />
+            {isNarrationPaused ? <Play className="w-5 h-5 fill-current" /> : <RotateCcw className="w-5 h-5" />}
           </button>
         )}
         {isQuiz && quizCategory && (

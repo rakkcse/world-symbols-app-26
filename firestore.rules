@@ -71,7 +71,8 @@ service cloud.firestore {
 
     match /global_collections/{type} {
       allow read: if true;
-      allow write: if isValidGlobalCollection(request.resource.data);
+      allow create, update: if isValidGlobalCollection(request.resource.data);
+      allow delete: if isAdmin();
 
       match /images/{countryName} {
         allow read: if true;

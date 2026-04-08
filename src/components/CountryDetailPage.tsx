@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from "motion/react";
 import { Home, ArrowLeft, ArrowRight, PawPrint, Bird, Flag, Banknote, Flower2, Trophy, Loader2, Image as ImageIcon, Landmark, Map as MapIcon, MapPin, Volume2, RotateCcw } from "lucide-react";
@@ -10,12 +10,13 @@ import InteractiveMap from './InteractiveMap';
 import { useAutoScroll } from './AutoScrollProvider';
 import { useSound } from './SoundProvider';
 import { getCachedImage, setCachedImage } from '../lib/cache';
+import { currencyDetails } from '../lib/currencyData';
 
 export default function CountryDetailPage() {
   const { countryName } = useParams<{ countryName: string }>();
   const navigate = useNavigate();
   const { autoScrollEnabled, setAutoScrollEnabled, autoScrollDelay } = useAutoScroll();
-  const { narrationEnabled, replayCounter } = useSound();
+  const { narrationEnabled, replayCounter, pauseNarration, isNarrationPaused, setIsNarrationPaused } = useSound();
   const [loading, setLoading] = useState(true);
   const [isNarrating, setIsNarrating] = useState(false);
   const [narratingCategory, setNarratingCategory] = useState<string | null>(null);
@@ -23,11 +24,21 @@ export default function CountryDetailPage() {
   const [isoCode, setIsoCode] = useState<string | null>(null);
   const [coordinates, setCoordinates] = useState<[number, number] | null>(null);
   const [continent, setContinent] = useState<string | null>(null);
-  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth <= 768 : false);
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth <= 1280 : false);
+  const [isLandscape, setIsLandscape] = useState(typeof window !== 'undefined' ? window.innerWidth > window.innerHeight : false);
   const [clickedCategory, setClickedCategory] = useState<string | null>(null);
 
   useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth <= 768);
+    return () => {
+      setIsNarrationPaused(false);
+    };
+  }, [setIsNarrationPaused]);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 1280);
+      setIsLandscape(window.innerWidth > window.innerHeight);
+    };
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
@@ -206,6 +217,7 @@ export default function CountryDetailPage() {
         if (!signal.aborted) {
           setIsNarrating(false);
           setNarratingCategory(null);
+          setIsNarrationPaused(false);
         }
       }
     };
@@ -216,8 +228,9 @@ export default function CountryDetailPage() {
       controller.abort();
       window.speechSynthesis.cancel();
       setNarratingCategory(null);
+      setIsNarrationPaused(false);
     };
-  }, [country, currentIndex, narrationEnabled, nextCountry, navigate, setAutoScrollEnabled, autoScrollDelay, replayCounter]);
+  }, [country, currentIndex, narrationEnabled, nextCountry, navigate, setAutoScrollEnabled, autoScrollDelay, replayCounter, setIsNarrationPaused]);
 
   useEffect(() => {
     if (!country) {
@@ -328,6 +341,8 @@ export default function CountryDetailPage() {
     { id: 'sports', label: 'National Sport', icon: <Trophy className="w-6 h-6" />, items: country.sports, color: 'teal' },
   ].filter(cat => cat.items && cat.items.length > 0);
 
+  const narratingCat = categories.find(c => c.id === narratingCategory);
+
   return (
     <div className={`min-h-screen p-4 md:p-6 transition-all duration-500`}>
       <header className={`${categories.length === 7 ? 'max-w-7xl' : 'max-w-6xl'} mx-auto mb-4 transition-all duration-500 ${narratingCategory === 'header' ? 'scale-[1.05] ring-4 ring-blue-500/20 dark:ring-blue-400/20 rounded-3xl p-4 bg-white/50 dark:bg-gray-800/50' : ''}`}>
@@ -382,10 +397,9 @@ export default function CountryDetailPage() {
             {categories.map((cat, index) => {
               const isNarrating = narratingCategory === cat.id;
               const isClicked = clickedCategory === cat.id;
-              const isZoomed = isNarrating || isClicked;
               
               return (
-                <div key={cat.id} className={`relative ${isZoomed ? 'z-50' : 'z-0'}`}>
+                <div key={cat.id} className={`relative ${isNarrating || isClicked ? 'z-50' : 'z-0'}`}>
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -395,14 +409,14 @@ export default function CountryDetailPage() {
                         setClickedCategory(isClicked ? null : cat.id);
                       }
                     }}
-                    className={`bg-white dark:bg-[#1a1d23] rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden flex flex-col transition-all duration-500 cursor-pointer ${!isMobile && isZoomed ? 'scale-[1.8] ring-4 ring-blue-500 dark:ring-blue-400 shadow-2xl z-50' : ''}`}
+                    className={`bg-white dark:bg-[#1a1d23] rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden flex flex-col transition-all duration-500 cursor-pointer ${narratingCategory === cat.id || (isMobile && isClicked) ? 'opacity-0' : (!isMobile && isClicked ? 'scale-[1.8] ring-4 ring-blue-500 dark:ring-blue-400 shadow-2xl z-50' : '')}`}
                   >
                     <div className={`${isMobile ? 'aspect-square' : 'aspect-video'} bg-gray-50 dark:bg-gray-900/50 flex items-center justify-center overflow-hidden relative`}>
                       {countryImages[cat.id] ? (
                         <img 
                           src={countryImages[cat.id]} 
                           alt={cat.label} 
-                          className="w-full h-full object-cover"
+                          className={`w-full h-full ${cat.id === 'currencies' ? 'object-contain p-4' : 'object-cover'}`}
                         />
                       ) : (
                         <div className="flex flex-col items-center text-gray-300 dark:text-gray-700">
@@ -410,15 +424,35 @@ export default function CountryDetailPage() {
                           <span className="text-[8px] font-bold uppercase tracking-widest">No Image</span>
                         </div>
                       )}
+                      {isMobile && (
+                        <div className="absolute top-1 right-1 p-1 bg-white/80 dark:bg-black/40 backdrop-blur-sm rounded-lg shadow-sm">
+                          {React.cloneElement(cat.icon as React.ReactElement<any>, { className: 'w-3 h-3 text-gray-600 dark:text-gray-300' })}
+                        </div>
+                      )}
                     </div>
-                    {!isMobile && (
-                      <div className="p-4">
-                        <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-1">{cat.label}</h3>
+                    {(!isMobile || !narrationEnabled) && (
+                      <div className={`${isMobile ? 'p-1.5' : 'p-4'}`}>
+                        <h3 className={`${isMobile ? 'text-[7px]' : 'text-xs'} font-black uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-0.5 flex items-center gap-1`}>
+                          {!isMobile && <span className="opacity-50">{React.cloneElement(cat.icon as React.ReactElement<any>, { className: 'w-3 h-3' })}</span>}
+                          {cat.label}
+                        </h3>
                         <div className="flex flex-wrap gap-1">
                           {cat.items.map((item, idx) => (
-                            <span key={`${item}-${idx}`} className={`px-2 py-0.5 bg-${cat.color}-50 dark:bg-${cat.color}-900/10 text-${cat.color}-600 dark:text-${cat.color}-400 rounded-full text-base font-bold border border-${cat.color}-100 dark:border-${cat.color}-900/30`}>
-                              {item}
-                            </span>
+                            <div key={`${item}-${idx}`} className="flex flex-col w-full">
+                              <span className={`px-1 py-0.5 bg-${cat.color}-50 dark:bg-${cat.color}-900/10 text-${cat.color}-600 dark:text-${cat.color}-400 rounded-full ${isMobile ? 'text-[8px]' : 'text-base'} font-bold border border-${cat.color}-100 dark:border-${cat.color}-900/30 text-center truncate`}>
+                                {item}
+                              </span>
+                              {cat.id === 'currencies' && currencyDetails[item] && (
+                                <div aria-hidden="true" className="flex justify-between w-full mt-1 px-0.5">
+                                  <span className="text-emerald-600 dark:text-emerald-400 font-black text-[7px] md:text-[13px] bg-emerald-50 dark:bg-emerald-900/20 px-1 py-0.5 rounded-md border border-emerald-100 dark:border-emerald-900/30 shadow-sm">
+                                    {currencyDetails[item].symbol}
+                                  </span>
+                                  <span className="text-amber-600 dark:text-amber-400 font-black text-[7px] md:text-[13px] bg-amber-50 dark:bg-amber-900/20 px-1 py-0.5 rounded-md border border-amber-100 dark:border-amber-900/30 shadow-sm">
+                                    {currencyDetails[item].code}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
                           ))}
                         </div>
                       </div>
@@ -427,7 +461,7 @@ export default function CountryDetailPage() {
 
                   {/* Mobile Overlay Zoom */}
                   <AnimatePresence>
-                    {isMobile && isZoomed && (
+                    {isMobile && isClicked && (
                       <>
                         <motion.div
                           initial={{ opacity: 0 }}
@@ -448,7 +482,7 @@ export default function CountryDetailPage() {
                               <img 
                                 src={countryImages[cat.id]} 
                                 alt={cat.label} 
-                                className="w-full h-full object-cover"
+                                className={`w-full h-full ${cat.id === 'currencies' ? 'object-contain p-6' : 'object-cover'}`}
                               />
                             ) : (
                               <div className="flex flex-col items-center text-gray-300 dark:text-gray-700">
@@ -458,12 +492,27 @@ export default function CountryDetailPage() {
                             )}
                           </div>
                           <div className="p-6">
-                            <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2">{cat.label}</h3>
+                            <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2 flex items-center gap-2">
+                              <span className="opacity-50">{React.cloneElement(cat.icon as React.ReactElement<any>, { className: 'w-4 h-4' })}</span>
+                              {cat.label}
+                            </h3>
                             <div className="flex flex-wrap gap-2">
                               {cat.items.map((item, idx) => (
-                                <span key={`${item}-${idx}`} className={`px-4 py-1.5 bg-${cat.color}-50 dark:bg-${cat.color}-900/10 text-${cat.color}-600 dark:text-${cat.color}-400 rounded-full text-xl font-bold border border-${cat.color}-100 dark:border-${cat.color}-900/30`}>
-                                  {item}
-                                </span>
+                                <div key={`${item}-${idx}`} className="flex flex-col w-full">
+                                  <span className={`px-4 py-1.5 bg-${cat.color}-50 dark:bg-${cat.color}-900/10 text-${cat.color}-600 dark:text-${cat.color}-400 rounded-full text-xl font-bold border border-${cat.color}-100 dark:border-${cat.color}-900/30 text-center`}>
+                                    {item}
+                                  </span>
+                                  {cat.id === 'currencies' && currencyDetails[item] && (
+                                    <div aria-hidden="true" className="flex justify-between w-full mt-2 px-2">
+                                      <span className="text-emerald-600 dark:text-emerald-400 font-black text-sm md:text-lg bg-emerald-50 dark:bg-emerald-900/20 px-3 py-1 rounded-md border border-emerald-100 dark:border-emerald-900/30 shadow-sm">
+                                        {currencyDetails[item].symbol}
+                                      </span>
+                                      <span className="text-amber-600 dark:text-amber-400 font-black text-sm md:text-lg bg-amber-50 dark:bg-amber-900/20 px-3 py-1 rounded-md border border-amber-100 dark:border-amber-900/30 shadow-sm">
+                                        {currencyDetails[item].code}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
                               ))}
                             </div>
                           </div>
@@ -476,6 +525,66 @@ export default function CountryDetailPage() {
             })}
           </div>
         )}
+
+        {/* Centered Narration Zoom Overlay */}
+        <AnimatePresence>
+          {narratingCat && !isNarrationPaused && (
+            <div 
+              className="fixed inset-0 z-[100] flex items-center justify-center"
+              onClick={pauseNarration}
+            >
+              <motion.div
+                key={narratingCat.id}
+                initial={{ opacity: 0, scale: 0.5 }}
+                animate={{ opacity: 1, scale: isMobile ? 1.1 : 1.5 }}
+                exit={{ opacity: 0, scale: 0.5 }}
+                transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                className={`${isMobile && isLandscape ? 'w-[85vw] flex-row' : 'w-64 md:w-80 flex-col'} bg-white dark:bg-[#1a1d23] rounded-3xl shadow-2xl border border-gray-100 dark:border-gray-800 overflow-hidden flex pointer-events-auto`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className={`relative ${isMobile && isLandscape ? 'w-1/3 aspect-square' : 'aspect-video'} bg-gray-50 dark:bg-gray-900/50 flex items-center justify-center overflow-hidden`}>
+                  {countryImages[narratingCat.id] ? (
+                    <img 
+                      src={countryImages[narratingCat.id]} 
+                      alt={narratingCat.label} 
+                      className={`w-full h-full ${narratingCat.id === 'currencies' ? 'object-contain p-6' : 'object-cover'}`}
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center text-gray-300 dark:text-gray-700">
+                      <ImageIcon className="w-12 h-12 mb-2 opacity-20" />
+                      <span className="text-xs font-bold uppercase tracking-widest">No Image</span>
+                    </div>
+                  )}
+                </div>
+                <div className={`p-6 flex flex-col items-center text-center ${isMobile && isLandscape ? 'w-2/3 justify-center' : ''}`}>
+                  <h3 className={`${isMobile && isLandscape ? 'text-lg' : 'text-sm'} font-black uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2 flex items-center gap-2`}>
+                    <span className="opacity-50">{React.cloneElement(narratingCat.icon as React.ReactElement<any>, { className: 'w-5 h-5' })}</span>
+                    {narratingCat.label}
+                  </h3>
+                  <div className={`flex flex-wrap gap-2 justify-center ${isMobile && isLandscape ? 'mt-4' : ''}`}>
+                    {narratingCat.items.map((item, idx) => (
+                      <div key={`${item}-${idx}`} className="flex flex-col w-full items-center">
+                        <span className={`px-4 py-1.5 bg-${narratingCat.color}-50 dark:bg-${narratingCat.color}-900/10 text-${narratingCat.color}-600 dark:text-${narratingCat.color}-400 rounded-full ${isMobile && isLandscape ? 'text-2xl' : 'text-xl'} font-bold border border-${narratingCat.color}-100 dark:border-${narratingCat.color}-900/30 text-center`}>
+                          {item}
+                        </span>
+                        {narratingCat.id === 'currencies' && currencyDetails[item] && (
+                          <div aria-hidden="true" className={`flex justify-between w-full px-2 ${isMobile && isLandscape ? 'mt-6 max-w-xs' : 'mt-2'}`}>
+                            <span className={`${isMobile && isLandscape ? 'text-lg px-4 py-1.5' : 'text-sm px-3 py-1'} text-emerald-600 dark:text-emerald-400 font-black bg-emerald-50 dark:bg-emerald-900/20 rounded-md border border-emerald-100 dark:border-emerald-900/30 shadow-sm`}>
+                              {currencyDetails[item].symbol}
+                            </span>
+                            <span className={`${isMobile && isLandscape ? 'text-lg px-4 py-1.5' : 'text-sm px-3 py-1'} text-amber-600 dark:text-amber-400 font-black bg-amber-50 dark:bg-amber-900/20 rounded-md border border-amber-100 dark:border-amber-900/30 shadow-sm`}>
+                              {currencyDetails[item].code}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
 
         {coordinates && (
           <motion.div
