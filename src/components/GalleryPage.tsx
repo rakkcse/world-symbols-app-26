@@ -1,12 +1,13 @@
 import { useState, ChangeEvent, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from "motion/react";
-import { Loader2, Image as ImageIcon, PawPrint, Bird, Upload, Trash2, ArrowLeft, Flag, Banknote, Flower2, LogIn, LogOut, Trophy, Landmark, Search, ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
+import { Loader2, Image as ImageIcon, PawPrint, Bird, Upload, Trash2, ArrowLeft, Flag, Banknote, Flower2, LogIn, LogOut, Trophy, Landmark, Search, ChevronLeft, ChevronRight, RotateCcw, AlertCircle, RefreshCw } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { countries } from "../data/countries";
 import { currencyDetails } from '../lib/currencyData';
 import { useFirebase } from './FirebaseProvider';
 import { doc, setDoc, serverTimestamp, collection, getDocs, getDoc, deleteDoc, writeBatch } from 'firebase/firestore';
-import { db } from '../firebase';
+import { ref, uploadString, getDownloadURL, deleteObject } from 'firebase/storage';
+import { db, storage } from '../firebase';
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 import { compressImage } from '../lib/image-utils';
 import { useNavigation } from './NavigationLayout';
@@ -33,7 +34,7 @@ const SearchInput = ({
     <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
     <input
       type="text"
-      placeholder="Search (3+ chars)..."
+      placeholder="3+ Chars"
       value={searchQuery}
       onChange={(e) => {
         setSearchQuery(e.target.value);
@@ -63,6 +64,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
   const { autoScrollEnabled, setAutoScrollEnabled, autoScrollDelay } = useAutoScroll();
   const [images, setImages] = useState<{ [key: string]: string }>({});
   const [uploading, setUploading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth <= 1280 : false);
   const [isLandscape, setIsLandscape] = useState(typeof window !== 'undefined' ? window.innerWidth > window.innerHeight : false);
   const [selectedLetter, setSelectedLetter] = useState<string | null>("ALL");
@@ -143,9 +145,9 @@ export default function GalleryPage({ type }: GalleryPageProps) {
   const alphabet = ["ALL", ...Array.from("ABCDEFGHIJKLMNOPQRSTUVWXYZ")];
   const availableLetters = ["ALL", ...Array.from(new Set(baseFilteredCountries.map(c => c.name.trim()[0].toUpperCase()))).sort()];
 
-  const currentIndex = selectedLetter ? alphabet.indexOf(selectedLetter) : -1;
-  const prevLetter = currentIndex > 0 ? alphabet[currentIndex - 1] : null;
-  const nextLetter = currentIndex < alphabet.length - 1 ? alphabet[currentIndex + 1] : null;
+  const currentIndex = selectedLetter ? availableLetters.indexOf(selectedLetter) : -1;
+  const prevLetter = currentIndex > 0 ? availableLetters[currentIndex - 1] : null;
+  const nextLetter = currentIndex < availableLetters.length - 1 ? availableLetters[currentIndex + 1] : null;
 
   const filteredCountries = useMemo(() => baseFilteredCountries.filter(c => {
     const countryName = c.name.trim();
@@ -188,6 +190,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
       const legacyDocRef = doc(db, 'global_collections', type);
       
       try {
+        setFetchError(null);
         // First check cache
         const cached = getCachedImage(type, 'ALL_IMAGES');
         if (cached) {
@@ -215,6 +218,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
           setBulkCachedImages(type, legacyImages);
         }
       } catch (error: any) {
+        setFetchError(error.message || String(error));
         // Only log if it's not a quota error
         if (!error.message.includes('Quota')) {
           handleFirestoreError(error, OperationType.GET, collPath);
@@ -256,15 +260,22 @@ export default function GalleryPage({ type }: GalleryPageProps) {
 
   const saveImage = async (countryName: string, base64: string) => {
     const docPath = `global_collections/${type}/images/${countryName}`;
+    const storagePath = `collections/${type}/${countryName}`;
     try {
+      // 1. Upload to Storage
+      const storageRef = ref(storage, storagePath);
+      await uploadString(storageRef, base64, 'data_url');
+      const downloadURL = await getDownloadURL(storageRef);
+
+      // 2. Save URL to Firestore
       await setDoc(doc(db, 'global_collections', type, 'images', countryName), {
-        image: base64,
+        image: downloadURL,
         updatedAt: serverTimestamp(),
         lastUpdatedBy: user?.uid || 'anonymous'
       });
       // Manually update local state and cache since we removed onSnapshot
-      setImages(prev => ({ ...prev, [countryName]: base64 }));
-      setCachedImage(type, countryName, base64);
+      setImages(prev => ({ ...prev, [countryName]: downloadURL }));
+      setCachedImage(type, countryName, downloadURL);
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, docPath);
     }
@@ -316,11 +327,20 @@ export default function GalleryPage({ type }: GalleryPageProps) {
 
   const removeImage = async (countryName: string) => {
     const docPath = `global_collections/${type}/images/${countryName}`;
+    const storagePath = `collections/${type}/${countryName}`;
     try {
       // 1. Delete from subcollection
       await deleteDoc(doc(db, 'global_collections', type, 'images', countryName));
       
-      // 2. Also update legacy document map
+      // 2. Delete from Storage
+      try {
+        const storageRef = ref(storage, storagePath);
+        await deleteObject(storageRef);
+      } catch (e) {
+        console.warn("Could not delete from storage (might not exist):", e);
+      }
+
+      // 3. Also update legacy document map
       const docRef = doc(db, 'global_collections', type);
       await setDoc(docRef, { 
         type,
@@ -329,7 +349,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
         lastUpdatedBy: user?.uid || 'anonymous'
       }, { merge: true });
 
-      // 3. Update local state
+      // 4. Update local state
       setImages(prev => {
         const next = { ...prev };
         delete next[countryName];
@@ -688,8 +708,22 @@ export default function GalleryPage({ type }: GalleryPageProps) {
   useEffect(() => {
     if (filterItem) {
       setCustomHandlers({
-        onNext: clearFilter,
-        onBack: clearFilter
+        onNext: () => {
+          if (currentPage < totalPages) {
+            setCurrentPage(prev => prev + 1);
+            return true;
+          }
+          clearFilter();
+          return true;
+        },
+        onBack: () => {
+          if (currentPage > 1) {
+            setCurrentPage(prev => prev - 1);
+            return true;
+          }
+          clearFilter();
+          return true;
+        }
       });
     } else if (selectedLetter === "ALL") {
       setCustomHandlers({
@@ -845,9 +879,9 @@ export default function GalleryPage({ type }: GalleryPageProps) {
     <div className={`${isMobile ? 'min-h-screen' : 'h-screen overflow-hidden'} flex flex-col ${isMobile ? 'p-0.5' : 'p-2 md:p-4'}`}>
       <header className={`max-w-6xl mx-auto ${isMobile ? 'mb-0.5' : 'mb-2'} w-full`}>
         <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between w-full">
-            {/* Left: Title + Search */}
-            <div className="flex-1 flex items-center gap-3 z-20">
+          <div className={`flex ${isMobile && !isLandscape ? 'flex-col gap-2' : 'items-center justify-between'} w-full`}>
+            {/* Row 1: Title + Search */}
+            <div className={`flex items-center justify-between ${isMobile && !isLandscape ? 'w-full' : 'flex-1'} gap-3 z-20`}>
               <motion.div
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -882,77 +916,80 @@ export default function GalleryPage({ type }: GalleryPageProps) {
               </div>
             </div>
 
-            {/* Center: Toggle */}
-            <div className="flex-1 flex items-center justify-center z-10">
-              {/* ALL / A-Z Toggle */}
-              <div 
-                onClick={toggleMode}
-                className="flex items-center bg-gray-100 dark:bg-gray-800/50 rounded-full p-1 relative w-24 md:w-28 h-7 md:h-8 cursor-pointer select-none border border-gray-200/50 dark:border-gray-700/50"
-              >
-                <motion.div 
-                  className="absolute top-1 bottom-1 w-[calc(50%-4px)] bg-blue-600 rounded-full shadow-sm"
-                  animate={{ x: isAlphabetMode ? '100%' : '0%' }}
-                  transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                />
-                <span className={`flex-1 text-center text-[9px] md:text-[10px] font-black z-10 transition-colors duration-200 ${!isAlphabetMode ? 'text-white' : 'text-gray-500 dark:text-gray-400'}`}>ALL</span>
-                <span className={`flex-1 text-center text-[9px] md:text-[10px] font-black z-10 transition-colors duration-200 ${isAlphabetMode ? 'text-white' : 'text-gray-500 dark:text-gray-400'}`}>A-Z</span>
-              </div>
-            </div>
-
-            {/* Right: Navigation + Actions */}
-            <div className="flex-1 flex items-center justify-end gap-2 z-10">
-              <motion.div
-                initial={{ opacity: 0, x: 10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.2 }}
-                className="flex items-center gap-2"
-              >
-                <PaginationControls />
-
-                <div className="flex items-center justify-center shrink-0 bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded-lg border border-blue-100 dark:border-blue-900/30">
-                  <span className="text-[10px] md:text-xs font-black text-blue-700 dark:text-blue-300 leading-none">
-                    {selectedLetter === "ALL" 
-                      ? `${(currentPage - 1) * itemsPerPage + 1}-${Math.min(currentPage * itemsPerPage, filteredCountries.length)} of ${baseFilteredCountries.length}`
-                      : `${filteredCountries.length} of ${baseFilteredCountries.length}`
-                    }
-                  </span>
-                </div>
-
-                <label className="relative cursor-pointer group">
-                  <input
-                    type="file"
-                    multiple
-                    accept="image/*"
-                    onChange={handleFileUpload}
-                    className="hidden"
+            {/* Row 2 (Mobile) or Middle/Right (Desktop) */}
+            <div className={`flex items-center justify-between ${isMobile && !isLandscape ? 'w-full' : 'flex-1 gap-4'}`}>
+              {/* Center: Toggle */}
+              <div className="flex-1 flex items-center justify-center z-10">
+                {/* ALL / A-Z Toggle */}
+                <div 
+                  onClick={toggleMode}
+                  className="flex items-center bg-gray-100 dark:bg-gray-800/50 rounded-full p-1 relative w-24 md:w-28 h-7 md:h-8 cursor-pointer select-none border border-gray-200/50 dark:border-gray-700/50"
+                >
+                  <motion.div 
+                    className="absolute top-1 bottom-1 w-[calc(50%-4px)] bg-blue-600 rounded-full shadow-sm"
+                    animate={{ x: isAlphabetMode ? '100%' : '0%' }}
+                    transition={{ type: "spring", stiffness: 500, damping: 30 }}
                   />
-                  <div className="flex items-center justify-center px-3 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-md hover:bg-blue-700 transition-all active:scale-95">
-                    {uploading ? (
-                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                    ) : (
-                      <Upload className="w-3.5 h-3.5 mr-1.5" />
-                    )}
-                    {uploading ? "..." : `Upload`}
-                  </div>
-                </label>
-
-                <div className="flex items-center gap-1.5 px-2 py-1 bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-800 rounded-lg">
-                  <ImageIcon className="w-3 h-3 text-blue-500" />
-                  <span className="text-[10px] font-bold text-gray-600 dark:text-gray-400">
-                    {Object.keys(images).length}
-                  </span>
+                  <span className={`flex-1 text-center text-[9px] md:text-[10px] font-black z-10 transition-colors duration-200 ${!isAlphabetMode ? 'text-white' : 'text-gray-500 dark:text-gray-400'}`}>ALL</span>
+                  <span className={`flex-1 text-center text-[9px] md:text-[10px] font-black z-10 transition-colors duration-200 ${isAlphabetMode ? 'text-white' : 'text-gray-500 dark:text-gray-400'}`}>A-Z</span>
                 </div>
-                
-                {Object.keys(images).length > 0 && (
-                  <button
-                    onClick={clearAll}
-                    className="flex items-center justify-center px-3 py-1.5 bg-white dark:bg-[#1a1d23] text-red-500 border border-red-100 dark:border-red-900/30 rounded-xl text-xs font-bold hover:bg-red-50 dark:hover:bg-red-900/10 transition-all active:scale-95"
-                  >
-                    <Trash2 className="w-3.5 h-3.5 mr-1.5" />
-                    Clear
-                  </button>
-                )}
-              </motion.div>
+              </div>
+
+              {/* Right: Navigation + Actions */}
+              <div className="flex-1 flex items-center justify-end gap-2 z-10">
+                <motion.div
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.2 }}
+                  className="flex items-center gap-2"
+                >
+                  <PaginationControls />
+
+                  <div className="flex items-center justify-center shrink-0 bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded-lg border border-blue-100 dark:border-blue-900/30">
+                    <span className="text-[10px] md:text-xs font-black text-blue-700 dark:text-blue-300 leading-none">
+                      {selectedLetter === "ALL" 
+                        ? `${(currentPage - 1) * itemsPerPage + 1}-${Math.min(currentPage * itemsPerPage, filteredCountries.length)} of ${baseFilteredCountries.length}`
+                        : `${filteredCountries.length} of ${baseFilteredCountries.length}`
+                      }
+                    </span>
+                  </div>
+
+                  <label className="relative cursor-pointer group">
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                    <div className="flex items-center justify-center px-3 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-md hover:bg-blue-700 transition-all active:scale-95">
+                      {uploading ? (
+                        <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                      ) : (
+                        <Upload className="w-3.5 h-3.5 mr-1.5" />
+                      )}
+                      {uploading ? "..." : `Upload`}
+                    </div>
+                  </label>
+
+                  <div className="flex items-center gap-1.5 px-2 py-1 bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-800 rounded-lg">
+                    <ImageIcon className="w-3 h-3 text-blue-500" />
+                    <span className="text-[10px] font-bold text-gray-600 dark:text-gray-400">
+                      {Object.keys(images).length}
+                    </span>
+                  </div>
+                  
+                  {Object.keys(images).length > 0 && (
+                    <button
+                      onClick={clearAll}
+                      className="flex items-center justify-center px-3 py-1.5 bg-white dark:bg-[#1a1d23] text-red-500 border border-red-100 dark:border-red-900/30 rounded-xl text-xs font-bold hover:bg-red-50 dark:hover:bg-red-900/10 transition-all active:scale-95"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                      Clear
+                    </button>
+                  )}
+                </motion.div>
+              </div>
             </div>
           </div>
 
@@ -963,7 +1000,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
                 animate={{ opacity: 1, y: 0 }}
                 className="overflow-x-auto no-scrollbar py-1"
               >
-                <div className="flex flex-wrap gap-0.5">
+                <div className={`flex ${isMobile && isLandscape ? 'flex-nowrap' : 'flex-wrap'} gap-0.5 justify-center`}>
                   {lettersOnly.map(letter => (
                     <button
                       key={letter}
@@ -973,7 +1010,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
                         setSearchQuery("");
                         setCurrentPage(1);
                       }}
-                      className={`w-6 h-6 md:w-7 md:h-7 rounded-md text-[9px] md:text-[10px] font-bold transition-all flex items-center justify-center ${getLetterStyles(letter)}`}
+                      className={`${isMobile && isLandscape ? 'w-5 h-5 text-[8px]' : 'w-6 h-6 md:w-7 md:h-7 text-[9px] md:text-[10px]'} rounded-md font-bold transition-all flex items-center justify-center ${getLetterStyles(letter)}`}
                     >
                       {letter}
                     </button>
@@ -986,6 +1023,21 @@ export default function GalleryPage({ type }: GalleryPageProps) {
       </header>
 
       <main ref={galleryRef} className={`flex-grow max-w-7xl mx-auto ${isMobile ? 'px-1' : 'px-4'} w-full pb-2`}>
+        {fetchError && (
+          <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/30 rounded-xl flex items-center gap-3 text-red-600 dark:text-red-400 animate-in fade-in slide-in-from-top-2">
+            <AlertCircle className="w-5 h-5 shrink-0" />
+            <div className="flex flex-col">
+              <span className="text-xs font-black uppercase tracking-wider">Image load Technical Issue. Please try later</span>
+              <span className="text-[10px] opacity-70 font-mono truncate max-w-md">{fetchError}</span>
+            </div>
+            <button 
+              onClick={() => window.location.reload()}
+              className="ml-auto p-1.5 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-lg transition-colors"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
+        )}
         {paginatedCountries.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-gray-400 dark:text-gray-600">
             <Search className="w-12 h-12 mb-4 opacity-20" />
@@ -1055,7 +1107,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
                     >
                       <ImageIcon className={`${selectedLetter !== "ALL" ? 'w-6 h-6' : 'w-12 h-12'} mb-1 opacity-10`} />
                       <p className={`${selectedLetter !== "ALL" ? 'text-[7px]' : 'text-[10px]'} font-medium text-gray-400 dark:text-gray-600 uppercase tracking-widest leading-relaxed`}>
-                        No {type.slice(0, -1)}
+                        No {type === 'currencies' ? 'Currency' : type.slice(0, -1)}
                       </p>
                     </motion.div>
                   )}
@@ -1075,11 +1127,16 @@ export default function GalleryPage({ type }: GalleryPageProps) {
                       }
                       return items.slice(0, 1).map((item, idx) => (
                         <div key={item} className="w-full flex flex-col items-center">
-                          <button
-                            disabled={type === 'capitals'}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (type !== 'capitals') {
+                          {type === 'capitals' ? (
+                            <div className="px-2 py-1 rounded-lg text-center w-full flex flex-col items-center bg-blue-50 dark:bg-blue-900/20 border border-blue-100/50 dark:border-blue-900/30">
+                              <span className="text-blue-700 dark:text-blue-300 font-black text-[8px] md:text-[11px] uppercase tracking-tight">
+                                {item}
+                              </span>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 if (!filterItem) {
                                   setPreFilterState({
                                     letter: selectedLetter,
@@ -1091,16 +1148,16 @@ export default function GalleryPage({ type }: GalleryPageProps) {
                                 setSelectedLetter("ALL");
                                 setSearchQuery("");
                                 setCurrentPage(1);
-                              }
-                            }}
-                            className={`px-1 py-0.5 rounded-md text-center transition-all w-full flex flex-col items-center ${
-                              idx === 0
-                                ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 font-black text-[8px] md:text-[11px] uppercase tracking-tight border border-blue-100/50 dark:border-blue-900/30'
-                                : 'text-gray-500 dark:text-gray-400 font-bold italic text-[7px] md:text-[10px] opacity-80'
-                            } ${type !== 'capitals' ? 'hover:bg-blue-100 dark:hover:bg-blue-900/40 cursor-pointer' : ''}`}
-                          >
-                            <span className="truncate block w-full">{item}</span>
-                          </button>
+                              }}
+                              className={`px-1 py-0.5 rounded-md text-center transition-all w-full flex flex-col items-center ${
+                                idx === 0
+                                  ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 font-black text-[8px] md:text-[11px] uppercase tracking-tight border border-blue-100/50 dark:border-blue-900/30'
+                                  : 'text-gray-500 dark:text-gray-400 font-bold italic text-[7px] md:text-[10px] opacity-80'
+                              } hover:bg-blue-100 dark:hover:bg-blue-900/40 cursor-pointer`}
+                            >
+                              <span className="truncate block w-full">{item}</span>
+                            </button>
+                          )}
                           {type === 'currencies' && currencyDetails[item] && (
                             <div aria-hidden="true" className="flex justify-between w-full mt-1.5 px-1">
                               <span className="text-emerald-600 dark:text-emerald-400 font-black text-[10px] md:text-[13px] bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0.5 rounded-md border border-emerald-100 dark:border-emerald-900/30 shadow-sm">

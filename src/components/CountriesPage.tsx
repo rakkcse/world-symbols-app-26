@@ -7,6 +7,13 @@ import { countries } from "../data/countries";
 export default function CountriesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [history, setHistory] = useState<string[]>([]);
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth <= 1280 : false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth <= 1280);
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     const savedHistory = localStorage.getItem('country_search_history');
@@ -97,15 +104,28 @@ export default function CountriesPage() {
                 const element = document.getElementById(`section-${letter}`);
                 if (element) {
                   const offset = 20;
-                  const bodyRect = document.body.getBoundingClientRect().top;
-                  const elementRect = element.getBoundingClientRect().top;
-                  const elementPosition = elementRect - bodyRect;
-                  const offsetPosition = elementPosition - offset;
+                  const container = document.getElementById('app-root');
+                  
+                  if (container && isMobile) {
+                    const elementRect = element.getBoundingClientRect().top;
+                    const containerRect = container.getBoundingClientRect().top;
+                    const scrollPosition = container.scrollTop + (elementRect - containerRect) - offset;
+                    
+                    container.scrollTo({
+                      top: scrollPosition,
+                      behavior: 'smooth'
+                    });
+                  } else {
+                    const bodyRect = document.body.getBoundingClientRect().top;
+                    const elementRect = element.getBoundingClientRect().top;
+                    const elementPosition = elementRect - bodyRect;
+                    const offsetPosition = elementPosition - offset;
 
-                  window.scrollTo({
-                    top: offsetPosition,
-                    behavior: 'smooth'
-                  });
+                    window.scrollTo({
+                      top: offsetPosition,
+                      behavior: 'smooth'
+                    });
+                  }
                 }
               }}
               className="w-6 h-6 md:w-8 md:h-8 flex items-center justify-center text-[10px] md:text-sm font-black rounded-full hover:bg-blue-600 hover:text-white transition-all text-blue-600 dark:text-blue-400"

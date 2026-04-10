@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from "motion/react";
-import { Home, ArrowLeft, ArrowRight, PawPrint, Bird, Flag, Banknote, Flower2, Trophy, Loader2, Image as ImageIcon, Landmark, Map as MapIcon, MapPin, Volume2, RotateCcw } from "lucide-react";
+import { Home, ArrowLeft, ArrowRight, PawPrint, Bird, Flag, Banknote, Flower2, Trophy, Loader2, Image as ImageIcon, Landmark, Map as MapIcon, MapPin, Volume2, RotateCcw, AlertCircle, RefreshCw } from "lucide-react";
 import { countries } from "../data/countries";
 import { db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
@@ -27,6 +27,7 @@ export default function CountryDetailPage() {
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth <= 1280 : false);
   const [isLandscape, setIsLandscape] = useState(typeof window !== 'undefined' ? window.innerWidth > window.innerHeight : false);
   const [clickedCategory, setClickedCategory] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -250,6 +251,7 @@ export default function CountryDetailPage() {
       const images: { [key: string]: string } = {};
 
       try {
+        setFetchError(null);
         // Fetch ISO code and continent for map
         try {
           const restRes = await fetch(`https://restcountries.com/v3.1/name/${encodeURIComponent(country.name)}?fullText=true`, { signal });
@@ -312,10 +314,12 @@ export default function CountryDetailPage() {
         }
       } catch (error: any) {
         if (error.name !== 'AbortError') {
-          if (error.message?.includes('Quota')) {
+          setFetchError(error.message || String(error));
+          // Only log if it's not a quota error
+          if (!error.message?.includes('Quota')) {
             handleFirestoreError(error, OperationType.GET, 'country_images');
           } else {
-            console.error("Error fetching country images:", error);
+            console.warn("Firestore Quota exceeded for country images");
           }
         }
       } finally {
@@ -387,6 +391,21 @@ export default function CountryDetailPage() {
       </header>
 
       <main className={`${categories.length === 7 ? 'max-w-7xl' : 'max-w-6xl'} mx-auto`}>
+        {fetchError && (
+          <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/30 rounded-xl flex items-center gap-3 text-red-600 dark:text-red-400 animate-in fade-in slide-in-from-top-2">
+            <AlertCircle className="w-5 h-5 shrink-0" />
+            <div className="flex flex-col">
+              <span className="text-xs font-black uppercase tracking-wider">Image load Technical Issue. Please try later</span>
+              <span className="text-[10px] opacity-70 font-mono truncate max-w-md">{fetchError}</span>
+            </div>
+            <button 
+              onClick={() => window.location.reload()}
+              className="ml-auto p-1.5 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-lg transition-colors"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
+        )}
         {loading ? (
           <div className="flex flex-col items-center justify-center py-10">
             <Loader2 className="w-8 h-8 text-blue-600 animate-spin mb-2" />
@@ -439,7 +458,7 @@ export default function CountryDetailPage() {
                         <div className="flex flex-wrap gap-1">
                           {cat.items.map((item, idx) => (
                             <div key={`${item}-${idx}`} className="flex flex-col w-full">
-                              <span className={`px-1 py-0.5 bg-${cat.color}-50 dark:bg-${cat.color}-900/10 text-${cat.color}-600 dark:text-${cat.color}-400 rounded-full ${isMobile ? 'text-[8px]' : 'text-base'} font-bold border border-${cat.color}-100 dark:border-${cat.color}-900/30 text-center truncate`}>
+                              <span className={`px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg ${isMobile ? 'text-[8px]' : 'text-[11px] md:text-xs'} font-black uppercase tracking-tight border border-blue-100/50 dark:border-blue-900/30 text-center whitespace-normal break-words shadow-sm transition-all`}>
                                 {item}
                               </span>
                               {cat.id === 'currencies' && currencyDetails[item] && (
@@ -499,7 +518,7 @@ export default function CountryDetailPage() {
                             <div className="flex flex-wrap gap-2">
                               {cat.items.map((item, idx) => (
                                 <div key={`${item}-${idx}`} className="flex flex-col w-full">
-                                  <span className={`px-4 py-1.5 bg-${cat.color}-50 dark:bg-${cat.color}-900/10 text-${cat.color}-600 dark:text-${cat.color}-400 rounded-full text-xl font-bold border border-${cat.color}-100 dark:border-${cat.color}-900/30 text-center`}>
+                                  <span className={`px-3 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-xl text-lg md:text-xl font-black uppercase tracking-tight border border-blue-100/50 dark:border-blue-900/30 text-center whitespace-normal break-words shadow-md transition-all`}>
                                     {item}
                                   </span>
                                   {cat.id === 'currencies' && currencyDetails[item] && (
