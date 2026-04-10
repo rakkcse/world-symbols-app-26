@@ -286,8 +286,24 @@ export default function GalleryPage({ type }: GalleryPageProps) {
 
       if (matchedCountry) {
         try {
-          const compressedBase64 = await compressImage(file, 800, 800, 0.7);
-          await saveImage(matchedCountry.name, compressedBase64);
+          let imageBase64: string;
+          // For Currency gallery, allow GIFs to be uploaded without compression to preserve animation
+          if (type === 'currencies' && file.type === 'image/gif') {
+            // Check file size (Firestore 1MB limit, base64 adds ~33%)
+            if (file.size > 750 * 1024) {
+              console.warn(`GIF for ${matchedCountry.name} is too large (>750KB). Skipping.`);
+              return;
+            }
+            imageBase64 = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(file);
+            });
+          } else {
+            imageBase64 = await compressImage(file, 800, 800, 0.7);
+          }
+          await saveImage(matchedCountry.name, imageBase64);
         } catch (error) {
           console.error("Error compressing/saving image", error);
         }
@@ -652,7 +668,8 @@ export default function GalleryPage({ type }: GalleryPageProps) {
     playSound(type);
   }, [currentPage, selectedLetter, type, playSound]);
 
-  const clearFilter = useCallback(() => {
+  const clearFilter = useCallback((e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     if (preFilterState) {
       setSelectedLetter(preFilterState.letter);
       setCurrentPage(preFilterState.page);
@@ -829,22 +846,19 @@ export default function GalleryPage({ type }: GalleryPageProps) {
       <header className={`max-w-6xl mx-auto ${isMobile ? 'mb-0.5' : 'mb-2'} w-full`}>
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between w-full">
-            {/* Left: Title */}
-            <div className="flex-1 flex items-center">
+            {/* Left: Title + Search */}
+            <div className="flex-1 flex items-center gap-3 z-20">
               <motion.div
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
-                className="inline-flex items-center justify-center p-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-full text-blue-600 dark:text-blue-400"
+                className="inline-flex items-center justify-center p-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-full text-blue-600 dark:text-blue-400 shrink-0"
               >
                 {getIcon()}
                 <span className="text-[10px] font-semibold uppercase tracking-wider ml-1">
                   National {type.charAt(0).toUpperCase() + type.slice(1)}
                 </span>
               </motion.div>
-            </div>
 
-            {/* Center: Search + Toggle */}
-            <div className="flex-1 flex items-center justify-center gap-2 md:gap-4">
               <div className="flex items-center gap-2">
                 <SearchInput 
                   compact 
@@ -853,20 +867,23 @@ export default function GalleryPage({ type }: GalleryPageProps) {
                   setCurrentPage={setCurrentPage} 
                 />
                 {filterItem && (
-                  <div className="flex items-center gap-1.5 px-2 py-1 bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800 rounded-lg animate-in fade-in slide-in-from-left-2">
+                  <div className="flex items-center gap-1.5 px-2 py-1 bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800 rounded-lg animate-in fade-in slide-in-from-left-2 z-30">
                     <span className="text-[10px] font-black text-blue-700 dark:text-blue-300 uppercase tracking-tight">
                       {filterItem}
                     </span>
                     <button
-                      onClick={clearFilter}
-                      className="p-0.5 hover:bg-blue-200 dark:hover:bg-blue-800 rounded-md transition-colors"
+                      onClick={(e) => clearFilter(e)}
+                      className="p-0.5 hover:bg-blue-200 dark:hover:bg-blue-800 rounded-md transition-colors cursor-pointer relative z-40"
                     >
                       <Trash2 className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400" />
                     </button>
                   </div>
                 )}
               </div>
+            </div>
 
+            {/* Center: Toggle */}
+            <div className="flex-1 flex items-center justify-center z-10">
               {/* ALL / A-Z Toggle */}
               <div 
                 onClick={toggleMode}
@@ -882,14 +899,16 @@ export default function GalleryPage({ type }: GalleryPageProps) {
               </div>
             </div>
 
-            {/* Right: Actions */}
-            <div className="flex-1 flex items-center justify-end gap-2">
+            {/* Right: Navigation + Actions */}
+            <div className="flex-1 flex items-center justify-end gap-2 z-10">
               <motion.div
                 initial={{ opacity: 0, x: 10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.2 }}
                 className="flex items-center gap-2"
               >
+                <PaginationControls />
+
                 <div className="flex items-center justify-center shrink-0 bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded-lg border border-blue-100 dark:border-blue-900/30">
                   <span className="text-[10px] md:text-xs font-black text-blue-700 dark:text-blue-300 leading-none">
                     {selectedLetter === "ALL" 
@@ -1103,12 +1122,6 @@ export default function GalleryPage({ type }: GalleryPageProps) {
         </AnimatePresence>
       </div>
       )}
-      {selectedLetter === "ALL" && totalPages > 1 && (
-        <div className={`flex justify-center ${isMobile ? 'py-1 mt-1' : 'py-6 mt-8'} border-t border-gray-100 dark:border-gray-800`}>
-          <PaginationControls />
-        </div>
-      )}
-
       {/* Centered Zoom Overlay (Narration or Clicked) */}
       <AnimatePresence>
         {((narratingCountry && !isNarrationPaused) || clickedCountry) && (

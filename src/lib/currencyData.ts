@@ -110,7 +110,7 @@ export const currencyDetails: Record<string, { symbol: string; code: string }> =
   "Saudi Riyal": { symbol: "ر.س", code: "SAR" },
   "Serbian Dinar": { symbol: "дин.", code: "RSD" },
   "Seychellois Rupee": { symbol: "₨", code: "SCR" },
-  "Sierra Leonean Leone": { symbol: "Le", code: "SLL" },
+  "Sierra Leonean Leone": { symbol: "Le", code: "SLE" },
   "Singapore Dollar": { symbol: "$", code: "SGD" },
   "Solomon Islands Dollar": { symbol: "$", code: "SBD" },
   "Somali Shilling": { symbol: "Sh", code: "SOS" },
@@ -141,5 +141,6 @@ export const currencyDetails: Record<string, { symbol: string; code: string }> =
   "Venezuelan Bolívar": { symbol: "Bs.S", code: "VES" },
   "Vietnamese Đồng": { symbol: "₫", code: "VND" },
   "Yemeni Rial": { symbol: "﷼", code: "YER" },
-  "Zambian Kwacha": { symbol: "ZK", code: "ZMW" }
+  "Zambian Kwacha": { symbol: "ZK", code: "ZMW" },
+  "Zimbabwe Gold": { symbol: "ZiG", code: "ZWG" }
 };

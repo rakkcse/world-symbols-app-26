@@ -34,7 +34,7 @@ export const countries: CountryData[] = [
   { name: "Botswana", capital: "Gaborone", animals: ["Zebra"], birds: ["Kori Bustard", "Lilac-breasted Roller"], currencies: ["Botswana Pula"], flowers: [], sports: ["Football"] },
   { name: "Brazil", capital: "Brasília", animals: ["Jaguar"], birds: ["Rufous-bellied Thrush"], currencies: ["Brazilian Real"], flowers: ["Ipê-amarelo"], sports: ["Football", "Capoeira"] },
   { name: "Brunei", capital: "Bandar Seri Begawan", animals: [], birds: ["White-bellied Sea Eagle"], currencies: ["Brunei Dollar"], flowers: ["Simpor"], sports: ["Football"] },
-  { name: "Bulgaria", capital: "Sofia", animals: ["Lion"], birds: [], currencies: ["Bulgarian Lev"], flowers: ["Rose"], sports: ["Wrestling", "Weightlifting"] },
+  { name: "Bulgaria", capital: "Sofia", animals: ["Lion"], birds: [], currencies: ["Euro"], flowers: ["Rose"], sports: ["Wrestling", "Weightlifting"] },
   { name: "Burkina Faso", capital: "Ouagadougou", animals: ["White Stallion"], birds: [], currencies: ["West African CFA franc"], flowers: [], sports: ["Football"] },
   { name: "Burundi", capital: "Gitega", animals: ["Lion"], birds: [], currencies: ["Burundian Franc"], flowers: [], sports: ["Football"] },
   { name: "Cabo Verde", capital: "Praia", animals: [], birds: ["Grey-headed Kingfisher"], currencies: ["Cape Verdean Escudo"], flowers: [], sports: ["Football"] },
@@ -204,5 +204,5 @@ export const countries: CountryData[] = [
   { name: "Vietnam", capital: "Hanoi", animals: ["Water Buffalo"], birds: [], currencies: ["Vietnamese Đồng"], flowers: ["Lotus"], sports: ["Football", "Martial Arts"] },
   { name: "Yemen", capital: "Sana'a", animals: [], birds: ["Golden Eagle"], currencies: ["Yemeni Rial"], flowers: ["Coffee Flower"], sports: ["Football"] },
   { name: "Zambia", capital: "Lusaka", animals: [], birds: ["African Fish Eagle"], currencies: ["Zambian Kwacha"], flowers: [], sports: ["Football"] },
-  { name: "Zimbabwe", capital: "Harare", animals: ["Sable Antelope"], birds: ["African Fish Eagle"], currencies: ["United States Dollar"], flowers: ["Flame Lily"], sports: ["Football", "Cricket"] },
+  { name: "Zimbabwe", capital: "Harare", animals: ["Sable Antelope"], birds: ["African Fish Eagle"], currencies: ["Zimbabwe Gold"], flowers: ["Flame Lily"], sports: ["Football", "Cricket"] },
 ];
