@@ -34,6 +34,16 @@ function MapController({ center, geoJson, mini }: { center: [number, number], ge
   const map = useMap();
   
   useEffect(() => {
+    if (!map) return;
+
+    // Ensure the map is still valid and has a container
+    try {
+      const container = map.getContainer();
+      if (!container) return;
+    } catch (e) {
+      return;
+    }
+
     if (geoJson) {
       try {
         const layer = L.geoJSON(geoJson);
@@ -41,17 +51,17 @@ function MapController({ center, geoJson, mini }: { center: [number, number], ge
         if (bounds.isValid()) {
           map.fitBounds(bounds, { 
             padding: [30, 30], 
-            animate: true, 
+            animate: !mini, 
             duration: 1.5,
             easeLinearity: 0.25
           });
         }
       } catch (e) {
         console.error("Error fitting bounds:", e);
-        map.setView(center, mini ? 4 : 5, { animate: true, duration: 1.5 });
+        map.setView(center, mini ? 4 : 5, { animate: !mini, duration: 1.5 });
       }
     } else {
-      map.setView(center, mini ? 4 : 5, { animate: true, duration: 1.5 });
+      map.setView(center, mini ? 4 : 5, { animate: !mini, duration: 1.5 });
     }
   }, [center, geoJson, map, mini]);
 
@@ -74,7 +84,6 @@ export default function InteractiveMap({ center, countryName, capital, isoCode, 
 
     const fetchGeoJson = async () => {
       setIsFetching(true);
-      setGeoJson(null); // Clear previous boundary immediately
       
       try {
         // Try to find by ISO code first as it's more precise
@@ -121,6 +130,7 @@ export default function InteractiveMap({ center, countryName, capital, isoCode, 
   return (
     <div className={`w-full h-full ${!mini ? 'rounded-2xl border border-gray-100 dark:border-gray-800 shadow-inner' : ''} overflow-hidden`}>
       <MapContainer 
+        key={`${countryName}-${theme}`} // Force re-mount on country or theme change for stability
         center={center} 
         zoom={mini ? 4 : 5} 
         scrollWheelZoom={false} 
@@ -138,6 +148,7 @@ export default function InteractiveMap({ center, countryName, capital, isoCode, 
         
         {geoJson && (
           <GeoJSON 
+            key={`geojson-${countryName}`} // Keyed GeoJSON to prevent update errors
             data={geoJson} 
             style={{
               color: theme === 'dark' ? '#3b82f6' : '#2563eb',
@@ -149,7 +160,7 @@ export default function InteractiveMap({ center, countryName, capital, isoCode, 
           />
         )}
 
-        <Marker position={center} icon={customIcon}>
+        <Marker key={`marker-${countryName}`} position={center} icon={customIcon}>
           {!mini && (
             <Popup className="custom-popup">
               <div className="p-1">

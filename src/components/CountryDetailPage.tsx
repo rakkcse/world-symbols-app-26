@@ -11,6 +11,8 @@ import { useAutoScroll } from './AutoScrollProvider';
 import { useSound } from './SoundProvider';
 import { getCachedImage, setCachedImage } from '../lib/cache';
 import { currencyDetails } from '../lib/currencyData';
+import { getAssetUrl, preloadImage } from '../lib/gitUtils';
+import { HeritageImage } from './HeritageImage';
 
 export default function CountryDetailPage() {
   const { countryName } = useParams<{ countryName: string }>();
@@ -247,7 +249,6 @@ export default function CountryDetailPage() {
       setIsoCode(null);
       setCoordinates(null);
       setContinent(null);
-      const categories = ['capitals', 'flags', 'currencies', 'animals', 'flowers', 'sports'];
       const images: { [key: string]: string } = {};
 
       try {
@@ -278,36 +279,14 @@ export default function CountryDetailPage() {
         if (signal.aborted) return;
 
         const categoriesToFetch = ['capitals', 'flags', 'currencies', 'animals', 'birds', 'flowers', 'sports'];
-        await Promise.all(categoriesToFetch.map(async (category) => {
-          // Check cache first
-          const cached = getCachedImage(category, country.name);
-          if (cached) {
-            images[category] = cached;
-            return;
-          }
-
-          // First check the subcollection (new format)
-          const itemRef = doc(db, 'global_collections', category, 'images', country.name);
-          const itemSnap = await getDoc(itemRef);
-          
-          if (!signal.aborted && itemSnap.exists()) {
-            const imgData = itemSnap.data().image;
-            images[category] = imgData;
-            setCachedImage(category, country.name, imgData);
-          } else {
-            // Fallback to legacy document
-            const docRef = doc(db, 'global_collections', category);
-            const docSnap = await getDoc(docRef);
-            if (!signal.aborted && docSnap.exists()) {
-              const data = docSnap.data();
-              if (data.images && data.images[country.name]) {
-                const imgData = data.images[country.name];
-                images[category] = imgData;
-                setCachedImage(category, country.name, imgData);
-              }
-            }
-          }
-        }));
+        
+        // Use JSDelivr URLs for all categories
+        categoriesToFetch.forEach((category) => {
+          const url = getAssetUrl(category, country.name);
+          images[category] = url;
+          // Preload the image
+          preloadImage(url);
+        });
         
         if (!signal.aborted) {
           setCountryImages(images);
@@ -315,12 +294,6 @@ export default function CountryDetailPage() {
       } catch (error: any) {
         if (error.name !== 'AbortError') {
           setFetchError(error.message || String(error));
-          // Only log if it's not a quota error
-          if (!error.message?.includes('Quota')) {
-            handleFirestoreError(error, OperationType.GET, 'country_images');
-          } else {
-            console.warn("Firestore Quota exceeded for country images");
-          }
         }
       } finally {
         if (!signal.aborted) {
@@ -430,19 +403,16 @@ export default function CountryDetailPage() {
                     }}
                     className={`bg-white dark:bg-[#1a1d23] rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden flex flex-col transition-all duration-500 cursor-pointer ${narratingCategory === cat.id || (isMobile && isClicked) ? 'opacity-0' : (!isMobile && isClicked ? 'scale-[1.8] ring-4 ring-blue-500 dark:ring-blue-400 shadow-2xl z-50' : '')}`}
                   >
-                    <div className={`${isMobile ? 'aspect-square' : 'aspect-video'} bg-gray-50 dark:bg-gray-900/50 flex items-center justify-center overflow-hidden relative`}>
-                      {countryImages[cat.id] ? (
-                        <img 
-                          src={countryImages[cat.id]} 
-                          alt={cat.label} 
-                          className={`w-full h-full ${cat.id === 'currencies' ? 'object-contain p-4' : 'object-cover'}`}
-                        />
-                      ) : (
-                        <div className="flex flex-col items-center text-gray-300 dark:text-gray-700">
-                          <ImageIcon className="w-8 h-8 mb-1 opacity-20" />
-                          <span className="text-[8px] font-bold uppercase tracking-widest">No Image</span>
-                        </div>
-                      )}
+                    <div className="aspect-square bg-gray-50 dark:bg-gray-900/50 flex items-center justify-center overflow-hidden relative">
+                      <HeritageImage 
+                        category={cat.id} 
+                        countryName={country.name} 
+                        loading="eager"
+                        decoding="async"
+                        // @ts-ignore
+                        fetchPriority={cat.id === 'flags' || cat.id === 'capitals' ? 'high' : 'auto'}
+                        className={`w-full h-full ${cat.id === 'currencies' || cat.id === 'flags' ? 'object-contain' : 'object-cover'}`}
+                      />
                       {isMobile && (
                         <div className="absolute top-1 right-1 p-1 bg-white/80 dark:bg-black/40 backdrop-blur-sm rounded-lg shadow-sm">
                           {React.cloneElement(cat.icon as React.ReactElement<any>, { className: 'w-3 h-3 text-gray-600 dark:text-gray-300' })}
@@ -458,7 +428,7 @@ export default function CountryDetailPage() {
                         <div className="flex flex-wrap gap-1">
                           {cat.items.map((item, idx) => (
                             <div key={`${item}-${idx}`} className="flex flex-col w-full">
-                              <span className={`px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg ${isMobile ? 'text-[8px]' : 'text-[11px] md:text-xs'} font-black uppercase tracking-tight border border-blue-100/50 dark:border-blue-900/30 text-center whitespace-normal break-words shadow-sm transition-all`}>
+                              <span className={`px-2 py-1 bg-${cat.color}-50 dark:bg-${cat.color}-900/10 text-${cat.color}-600 dark:text-${cat.color}-400 rounded-full ${isMobile ? 'text-[8px]' : 'text-[11px] md:text-xs'} font-bold border border-${cat.color}-100 dark:border-${cat.color}-900/30 text-center whitespace-normal break-words shadow-sm transition-all`}>
                                 {item}
                               </span>
                               {cat.id === 'currencies' && currencyDetails[item] && (
@@ -466,6 +436,16 @@ export default function CountryDetailPage() {
                                   <span className="text-emerald-600 dark:text-emerald-400 font-black text-[7px] md:text-[13px] bg-emerald-50 dark:bg-emerald-900/20 px-1 py-0.5 rounded-md border border-emerald-100 dark:border-emerald-900/30 shadow-sm">
                                     {currencyDetails[item].symbol}
                                   </span>
+                                  {country.name === 'Panama' && (
+                                    <div className="text-[6px] md:text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-tight flex items-center">
+                                      Panamanian Balboa
+                                    </div>
+                                  )}
+                                  {country.name === 'Tuvalu' && (
+                                    <div className="text-[6px] md:text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-tight flex items-center">
+                                      Tuvalu Dollar
+                                    </div>
+                                  )}
                                   <span className="text-amber-600 dark:text-amber-400 font-black text-[7px] md:text-[13px] bg-amber-50 dark:bg-amber-900/20 px-1 py-0.5 rounded-md border border-amber-100 dark:border-amber-900/30 shadow-sm">
                                     {currencyDetails[item].code}
                                   </span>
@@ -496,19 +476,12 @@ export default function CountryDetailPage() {
                           exit={{ opacity: 0, scale: 0.8, y: 20, x: '-50%', left: '50%', top: '50%' }}
                           className="fixed z-[101] w-[90%] max-w-sm bg-white dark:bg-[#1a1d23] rounded-[32px] border border-gray-100 dark:border-gray-800 shadow-2xl overflow-hidden flex flex-col"
                         >
-                          <div className="aspect-video bg-gray-50 dark:bg-gray-900/50 flex items-center justify-center overflow-hidden relative">
-                            {countryImages[cat.id] ? (
-                              <img 
-                                src={countryImages[cat.id]} 
-                                alt={cat.label} 
-                                className={`w-full h-full ${cat.id === 'currencies' ? 'object-contain p-6' : 'object-cover'}`}
-                              />
-                            ) : (
-                              <div className="flex flex-col items-center text-gray-300 dark:text-gray-700">
-                                <ImageIcon className="w-12 h-12 mb-2 opacity-20" />
-                                <span className="text-xs font-bold uppercase tracking-widest">No Image</span>
-                              </div>
-                            )}
+                          <div className="aspect-square bg-gray-50 dark:bg-gray-900/50 flex items-center justify-center overflow-hidden relative">
+                            <HeritageImage 
+                              category={cat.id} 
+                              countryName={country.name} 
+                              className={`w-full h-full ${cat.id === 'currencies' || cat.id === 'flags' ? 'object-contain' : 'object-cover'}`}
+                            />
                           </div>
                           <div className="p-6">
                             <h3 className="text-sm font-black uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2 flex items-center gap-2">
@@ -518,7 +491,7 @@ export default function CountryDetailPage() {
                             <div className="flex flex-wrap gap-2">
                               {cat.items.map((item, idx) => (
                                 <div key={`${item}-${idx}`} className="flex flex-col w-full">
-                                  <span className={`px-3 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-xl text-lg md:text-xl font-black uppercase tracking-tight border border-blue-100/50 dark:border-blue-900/30 text-center whitespace-normal break-words shadow-md transition-all`}>
+                                  <span className={`px-3 py-2 bg-${cat.color}-50 dark:bg-${cat.color}-900/10 text-${cat.color}-600 dark:text-${cat.color}-400 rounded-full text-lg md:text-xl font-bold border border-${cat.color}-100 dark:border-${cat.color}-900/30 text-center whitespace-normal break-words shadow-md transition-all`}>
                                     {item}
                                   </span>
                                   {cat.id === 'currencies' && currencyDetails[item] && (
@@ -526,6 +499,16 @@ export default function CountryDetailPage() {
                                       <span className="text-emerald-600 dark:text-emerald-400 font-black text-sm md:text-lg bg-emerald-50 dark:bg-emerald-900/20 px-3 py-1 rounded-md border border-emerald-100 dark:border-emerald-900/30 shadow-sm">
                                         {currencyDetails[item].symbol}
                                       </span>
+                                      {country.name === 'Panama' && (
+                                        <div className="text-xs md:text-base font-black text-blue-600 dark:text-blue-400 uppercase tracking-tight flex items-center">
+                                          Panamanian Balboa
+                                        </div>
+                                      )}
+                                      {country.name === 'Tuvalu' && (
+                                        <div className="text-xs md:text-base font-black text-blue-600 dark:text-blue-400 uppercase tracking-tight flex items-center">
+                                          Tuvalu Dollar
+                                        </div>
+                                      )}
                                       <span className="text-amber-600 dark:text-amber-400 font-black text-sm md:text-lg bg-amber-50 dark:bg-amber-900/20 px-3 py-1 rounded-md border border-amber-100 dark:border-amber-900/30 shadow-sm">
                                         {currencyDetails[item].code}
                                       </span>
@@ -561,19 +544,12 @@ export default function CountryDetailPage() {
                 className={`${isMobile && isLandscape ? 'w-[85vw] flex-row' : 'w-64 md:w-80 flex-col'} bg-white dark:bg-[#1a1d23] rounded-3xl shadow-2xl border border-gray-100 dark:border-gray-800 overflow-hidden flex pointer-events-auto`}
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className={`relative ${isMobile && isLandscape ? 'w-1/3 aspect-square' : 'aspect-video'} bg-gray-50 dark:bg-gray-900/50 flex items-center justify-center overflow-hidden`}>
-                  {countryImages[narratingCat.id] ? (
-                    <img 
-                      src={countryImages[narratingCat.id]} 
-                      alt={narratingCat.label} 
-                      className={`w-full h-full ${narratingCat.id === 'currencies' ? 'object-contain p-6' : 'object-cover'}`}
-                    />
-                  ) : (
-                    <div className="flex flex-col items-center text-gray-300 dark:text-gray-700">
-                      <ImageIcon className="w-12 h-12 mb-2 opacity-20" />
-                      <span className="text-xs font-bold uppercase tracking-widest">No Image</span>
-                    </div>
-                  )}
+                <div className={`relative ${isMobile && isLandscape ? 'w-1/3 aspect-square' : 'aspect-square'} bg-gray-50 dark:bg-gray-900/50 flex items-center justify-center overflow-hidden`}>
+                  <HeritageImage 
+                    category={narratingCat.id} 
+                    countryName={country.name} 
+                    className={`w-full h-full ${narratingCat.id === 'currencies' || narratingCat.id === 'flags' ? 'object-contain' : 'object-cover'}`}
+                  />
                 </div>
                 <div className={`p-6 flex flex-col items-center text-center ${isMobile && isLandscape ? 'w-2/3 justify-center' : ''}`}>
                   <h3 className={`${isMobile && isLandscape ? 'text-lg' : 'text-sm'} font-black uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2 flex items-center gap-2`}>
@@ -591,6 +567,16 @@ export default function CountryDetailPage() {
                             <span className={`${isMobile && isLandscape ? 'text-lg px-4 py-1.5' : 'text-sm px-3 py-1'} text-emerald-600 dark:text-emerald-400 font-black bg-emerald-50 dark:bg-emerald-900/20 rounded-md border border-emerald-100 dark:border-emerald-900/30 shadow-sm`}>
                               {currencyDetails[item].symbol}
                             </span>
+                            {country.name === 'Panama' && (
+                              <div className={`${isMobile && isLandscape ? 'text-base' : 'text-xs'} font-black text-blue-600 dark:text-blue-400 uppercase tracking-tight flex items-center`}>
+                                Panamanian Balboa
+                              </div>
+                            )}
+                            {country.name === 'Tuvalu' && (
+                              <div className={`${isMobile && isLandscape ? 'text-base' : 'text-xs'} font-black text-blue-600 dark:text-blue-400 uppercase tracking-tight flex items-center`}>
+                                Tuvalu Dollar
+                              </div>
+                            )}
                             <span className={`${isMobile && isLandscape ? 'text-lg px-4 py-1.5' : 'text-sm px-3 py-1'} text-amber-600 dark:text-amber-400 font-black bg-amber-50 dark:bg-amber-900/20 rounded-md border border-amber-100 dark:border-amber-900/30 shadow-sm`}>
                               {currencyDetails[item].code}
                             </span>

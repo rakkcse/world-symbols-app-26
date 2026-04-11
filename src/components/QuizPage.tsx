@@ -5,6 +5,8 @@ import { Link, useSearchParams } from "react-router-dom";
 import { countries } from "../data/countries";
 import { useNavigation } from './NavigationLayout';
 import { useSound } from './SoundProvider';
+import { getAssetUrl, preloadImage } from '../lib/gitUtils';
+import { HeritageImage } from './HeritageImage';
 
 import { db } from '../firebase';
 import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
@@ -96,25 +98,10 @@ export default function QuizPage() {
     
     let flagImages: { [key: string]: string } = {};
     if (category === 'flags' || category === 'random') {
-      try {
-        // Try subcollection first
-        const collRef = collection(db, 'global_collections', 'flags', 'images');
-        const snapshot = await getDocs(collRef);
-        if (!snapshot.empty) {
-          snapshot.forEach(doc => {
-            flagImages[doc.id] = doc.data().image;
-          });
-        } else {
-          // Fallback to legacy document
-          const docRef = doc(db, 'global_collections', 'flags');
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
-            flagImages = docSnap.data().images || {};
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching flag images:", error);
-      }
+      // Use JSDelivr URLs for flags
+      countries.forEach(c => {
+        flagImages[c.name] = getAssetUrl('flags', c.name);
+      });
     }
 
     const newQuestions: Question[] = selectedCountries.map((country, index) => {
@@ -166,10 +153,10 @@ export default function QuizPage() {
           if (flagSubtype === 'identify_country') {
             question = `Which country does this flag belong to?`;
             correctAnswer = country.name;
-            image = flagImages[country.name];
+            image = country.name;
           } else {
             question = `Which of these is the national flag of ${country.name}?`;
-            correctAnswer = flagImages[country.name];
+            correctAnswer = country.name;
             optionsAreImages = true;
           }
           break;
@@ -200,7 +187,7 @@ export default function QuizPage() {
         .filter(c => c.name !== country.name)
         .map(c => {
           if (type === 'capital') return c.capital;
-          if (type === 'flag') return flagSubtype === 'identify_country' ? c.name : flagImages[c.name];
+          if (type === 'flag') return c.name;
           if (type === 'currency') return c.currencies[0];
           if (type === 'animal') return c.animals[0];
           if (type === 'bird') return c.birds[0];
@@ -223,6 +210,14 @@ export default function QuizPage() {
         image,
         optionsAreImages
       };
+    });
+
+    // Preload all images for the quiz questions
+    newQuestions.forEach(q => {
+      if (q.image) preloadImage(q.image);
+      if (q.optionsAreImages) {
+        q.options.forEach(opt => preloadImage(opt));
+      }
     });
 
     setQuestions(newQuestions);
@@ -388,8 +383,12 @@ export default function QuizPage() {
 
               {currentQuestion.image && (
                 <div className="mb-8 flex justify-center">
-                  <div className="w-48 h-32 md:w-64 md:h-40 rounded-2xl overflow-hidden border-4 border-gray-100 dark:border-gray-800 shadow-lg">
-                    <img src={currentQuestion.image} alt="Question" className="w-full h-full object-cover" />
+                  <div className="w-48 h-32 md:w-64 md:h-40 rounded-2xl overflow-hidden border-4 border-gray-100 dark:border-gray-800 shadow-lg bg-gray-50 dark:bg-gray-900/50 flex items-center justify-center">
+                    <HeritageImage 
+                      category={currentQuestion.type === 'flag' ? 'flags' : currentQuestion.type + 's'} 
+                      countryName={currentQuestion.image} 
+                      className="w-full h-full object-cover" 
+                    />
                   </div>
                 </div>
               )}
@@ -424,7 +423,11 @@ export default function QuizPage() {
                     >
                       {currentQuestion.optionsAreImages ? (
                         <>
-                          <img src={option} alt="Option" className="w-full h-full object-cover rounded-lg" />
+                          <HeritageImage 
+                            category={currentQuestion.type === 'flag' ? 'flags' : currentQuestion.type + 's'} 
+                            countryName={option} 
+                            className="w-full h-full object-cover rounded-lg" 
+                          />
                           {selectedOption && isCorrectAnswer && (
                             <div className="absolute inset-0 bg-green-500/20 flex items-center justify-center">
                               <CheckCircle2 className="w-8 h-8 text-green-500" />

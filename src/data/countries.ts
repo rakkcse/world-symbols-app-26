@@ -142,7 +142,7 @@ export const countries: CountryData[] = [
   { name: "Pakistan", capital: "Islamabad", animals: ["Markhor"], birds: ["Chukar Partridge"], currencies: ["Pakistani Rupee"], flowers: ["Jasmine"], sports: ["Field Hockey", "Cricket"] },
   { name: "Palau", capital: "Ngerulmud", animals: [], birds: ["Palau Fruit Dove"], currencies: ["United States Dollar"], flowers: [], sports: ["Baseball"] },
   { name: "Palestine", capital: "Jerusalem", animals: [], birds: ["Palestine Sunbird"], currencies: ["Israeli New Shekel"], flowers: [], sports: ["Football"] },
-  { name: "Panama", capital: "Panama City", animals: [], birds: ["Harpy Eagle"], currencies: ["Panamanian Balboa"], flowers: ["Holy Ghost Orchid"], sports: ["Baseball"] },
+  { name: "Panama", capital: "Panama City", animals: [], birds: ["Harpy Eagle"], currencies: ["United States Dollar"], flowers: ["Holy Ghost Orchid"], sports: ["Baseball"] },
   { name: "Papua New Guinea", capital: "Port Moresby", animals: ["Dugong"], birds: ["Raggiana Bird-of-paradise"], currencies: ["Papua New Guinean Kina"], flowers: ["Orchid"], sports: ["Rugby League"] },
   { name: "Paraguay", capital: "Asunción", animals: ["Pampas Fox"], birds: ["Bare-throated Bellbird"], currencies: ["Paraguayan Guaraní"], flowers: ["Passion Flower"], sports: ["Football"] },
   { name: "Peru", capital: "Lima", animals: ["Vicuña"], birds: ["Andean Cock-of-the-rock"], currencies: ["Peruvian Sol"], flowers: ["Cantua"], sports: ["Paleta Frontón"] },

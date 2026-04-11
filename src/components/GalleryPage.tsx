@@ -14,6 +14,10 @@ import { useNavigation } from './NavigationLayout';
 import { useAutoScroll } from './AutoScrollProvider';
 import { useSound } from './SoundProvider';
 import { getCachedImage, setCachedImage, setBulkCachedImages } from '../lib/cache';
+import { getAssetUrl, preloadImage } from '../lib/gitUtils';
+import { HeritageImage } from './HeritageImage';
+
+const MotionHeritageImage = motion(HeritageImage);
 
 interface GalleryPageProps {
   type: 'animals' | 'birds' | 'flags' | 'currencies' | 'flowers' | 'sports' | 'capitals';
@@ -67,7 +71,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth <= 1280 : false);
   const [isLandscape, setIsLandscape] = useState(typeof window !== 'undefined' ? window.innerWidth > window.innerHeight : false);
-  const [selectedLetter, setSelectedLetter] = useState<string | null>("ALL");
+  const [selectedLetter, setSelectedLetter] = useState<string | null>(typeof window !== 'undefined' ? (window.innerWidth > 1280 ? "A" : "ALL") : "ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterItem, setFilterItem] = useState<string | null>(null);
   const [preFilterState, setPreFilterState] = useState<{
@@ -77,7 +81,12 @@ export default function GalleryPage({ type }: GalleryPageProps) {
   } | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = useMemo(() => {
-    if (selectedLetter !== "ALL") return 20;
+    if (selectedLetter !== "ALL") {
+      if (!isMobile && selectedLetter === "S" && ['capitals', 'currencies', 'sports'].includes(type)) {
+        return 27; // 9 columns x 3 rows
+      }
+      return 20;
+    }
     if (isMobile) {
       if (isLandscape) {
         return 10; // 5 columns x 2 rows
@@ -98,7 +107,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
   const galleryRef = useRef<HTMLElement>(null);
   const [narratingCountry, setNarratingCountry] = useState<string | null>(null);
   const [clickedCountry, setClickedCountry] = useState<string | null>(null);
-  const [isAlphabetMode, setIsAlphabetMode] = useState(false);
+  const [isAlphabetMode, setIsAlphabetMode] = useState(typeof window !== 'undefined' ? window.innerWidth > 1280 : false);
 
   const toggleMode = () => {
     if (isAlphabetMode) {
@@ -182,52 +191,27 @@ export default function GalleryPage({ type }: GalleryPageProps) {
     [filteredCountries, selectedLetter, currentPage, itemsPerPage]
   );
 
-  // Load images from Firestore
+  // Load images - simplified for JSDelivr
   useEffect(() => {
-    const fetchImages = async () => {
-      const collPath = `global_collections/${type}/images`;
-      const collRef = collection(db, 'global_collections', type, 'images');
-      const legacyDocRef = doc(db, 'global_collections', type);
-      
-      try {
-        setFetchError(null);
-        // First check cache
-        const cached = getCachedImage(type, 'ALL_IMAGES');
-        if (cached) {
-          // This is a bit of a hack to store all images in one cache key if we want
-          // But let's just use the existing setBulkCachedImages logic
-        }
-
-        // Fetch from subcollection
-        const snapshot = await getDocs(collRef);
-        const newImages: { [key: string]: string } = {};
-        snapshot.forEach((doc) => {
-          newImages[doc.id] = doc.data().image;
-        });
-        
-        if (Object.keys(newImages).length > 0) {
-          setImages(newImages);
-          setBulkCachedImages(type, newImages);
-        }
-
-        // Also check legacy document
-        const docSnap = await getDoc(legacyDocRef);
-        if (docSnap.exists() && docSnap.data().images) {
-          const legacyImages = docSnap.data().images;
-          setImages(prev => ({ ...legacyImages, ...prev }));
-          setBulkCachedImages(type, legacyImages);
-        }
-      } catch (error: any) {
-        setFetchError(error.message || String(error));
-        // Only log if it's not a quota error
-        if (!error.message.includes('Quota')) {
-          handleFirestoreError(error, OperationType.GET, collPath);
-        }
+    const newImages: { [key: string]: string } = {};
+    countries.forEach((c, index) => {
+      const url = getAssetUrl(type, c.name);
+      newImages[c.name] = url;
+      // Preload first 12 images for better initial experience
+      if (index < 12) {
+        preloadImage(url);
       }
-    };
-
-    fetchImages();
+    });
+    setImages(newImages);
   }, [type]);
+
+  // Preload images for current page to reduce perceived load time
+  useEffect(() => {
+    paginatedCountries.forEach(country => {
+      const url = getAssetUrl(type, country.name);
+      preloadImage(url);
+    });
+  }, [paginatedCountries, type]);
 
   // Scroll to top of gallery when letter changes
   useEffect(() => {
@@ -257,138 +241,6 @@ export default function GalleryPage({ type }: GalleryPageProps) {
       }
     }
   }, [selectedLetter, currentPage, isMobile]);
-
-  const saveImage = async (countryName: string, base64: string) => {
-    const docPath = `global_collections/${type}/images/${countryName}`;
-    const storagePath = `collections/${type}/${countryName}`;
-    try {
-      // 1. Upload to Storage
-      const storageRef = ref(storage, storagePath);
-      await uploadString(storageRef, base64, 'data_url');
-      const downloadURL = await getDownloadURL(storageRef);
-
-      // 2. Save URL to Firestore
-      await setDoc(doc(db, 'global_collections', type, 'images', countryName), {
-        image: downloadURL,
-        updatedAt: serverTimestamp(),
-        lastUpdatedBy: user?.uid || 'anonymous'
-      });
-      // Manually update local state and cache since we removed onSnapshot
-      setImages(prev => ({ ...prev, [countryName]: downloadURL }));
-      setCachedImage(type, countryName, downloadURL);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, docPath);
-    }
-  };
-
-  const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-
-    setUploading(true);
-    const fileList = Array.from(files) as File[];
-    
-    await Promise.all(fileList.map(async (file) => {
-      const fileName = file.name.toLowerCase();
-      const sortedCountries = [...countries].sort((a, b) => b.name.length - a.name.length);
-      const matchedCountry = sortedCountries.find(c => 
-        fileName.includes(c.name.toLowerCase())
-      );
-
-      if (matchedCountry) {
-        try {
-          let imageBase64: string;
-          // For Currency gallery, allow GIFs to be uploaded without compression to preserve animation
-          if (type === 'currencies' && file.type === 'image/gif') {
-            // Check file size (Firestore 1MB limit, base64 adds ~33%)
-            if (file.size > 750 * 1024) {
-              console.warn(`GIF for ${matchedCountry.name} is too large (>750KB). Skipping.`);
-              return;
-            }
-            imageBase64 = await new Promise((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve(reader.result as string);
-              reader.onerror = reject;
-              reader.readAsDataURL(file);
-            });
-          } else {
-            imageBase64 = await compressImage(file, 800, 800, 0.7);
-          }
-          await saveImage(matchedCountry.name, imageBase64);
-        } catch (error) {
-          console.error("Error compressing/saving image", error);
-        }
-      }
-    }));
-    
-    setUploading(false);
-    e.target.value = '';
-  };
-
-  const removeImage = async (countryName: string) => {
-    const docPath = `global_collections/${type}/images/${countryName}`;
-    const storagePath = `collections/${type}/${countryName}`;
-    try {
-      // 1. Delete from subcollection
-      await deleteDoc(doc(db, 'global_collections', type, 'images', countryName));
-      
-      // 2. Delete from Storage
-      try {
-        const storageRef = ref(storage, storagePath);
-        await deleteObject(storageRef);
-      } catch (e) {
-        console.warn("Could not delete from storage (might not exist):", e);
-      }
-
-      // 3. Also update legacy document map
-      const docRef = doc(db, 'global_collections', type);
-      await setDoc(docRef, { 
-        type,
-        images: { [countryName]: null },
-        updatedAt: serverTimestamp(),
-        lastUpdatedBy: user?.uid || 'anonymous'
-      }, { merge: true });
-
-      // 4. Update local state
-      setImages(prev => {
-        const next = { ...prev };
-        delete next[countryName];
-        return next;
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, docPath);
-    }
-  };
-
-  const clearAll = async () => {
-    const typeLabel = type === 'animals' ? 'animal photos' : type === 'birds' ? 'bird photos' : type === 'flags' ? 'flags' : type === 'currencies' ? 'currency photos' : type === 'flowers' ? 'flower photos' : type === 'sports' ? 'sports photos' : 'capital photos';
-    if (window.confirm(`Are you sure you want to clear all uploaded ${typeLabel}?`)) {
-      try {
-        const collRef = collection(db, 'global_collections', type, 'images');
-        const snapshot = await getDocs(collRef);
-        const batch = writeBatch(db);
-        
-        snapshot.forEach((doc) => {
-          batch.delete(doc.ref);
-        });
-        
-        // Also clear legacy document
-        const docRef = doc(db, 'global_collections', type);
-        batch.set(docRef, { 
-          type,
-          images: {},
-          updatedAt: serverTimestamp(),
-          lastUpdatedBy: user?.uid || 'anonymous'
-        }, { merge: true });
-
-        await batch.commit();
-        setImages({});
-      } catch (error) {
-        console.error("Error clearing images", error);
-        handleFirestoreError(error, OperationType.DELETE, `global_collections/${type}`);
-      }
-    }
-  };
 
   const getIcon = () => {
     switch (type) {
@@ -635,6 +487,10 @@ export default function GalleryPage({ type }: GalleryPageProps) {
     let bestCols = baseCols;
 
     if (selectedLetter !== "ALL") {
+      if (!isMobile && selectedLetter === "S" && ['capitals', 'currencies', 'sports'].includes(type)) {
+        setGridConfig({ cols: 9, rows: 3 });
+        return;
+      }
       if (!isMobile) {
         // Dynamic grid based on height to fill empty space
         const headerHeight = 180; // Approximate header + alphabet height
@@ -867,6 +723,8 @@ export default function GalleryPage({ type }: GalleryPageProps) {
     };
   };
 
+  const isSpecialSGrid = !isMobile && selectedLetter === "S" && ['capitals', 'currencies', 'sports'].includes(type);
+
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -880,117 +738,130 @@ export default function GalleryPage({ type }: GalleryPageProps) {
       <header className={`max-w-6xl mx-auto ${isMobile ? 'mb-0.5' : 'mb-2'} w-full`}>
         <div className="flex flex-col gap-2">
           <div className={`flex ${isMobile && !isLandscape ? 'flex-col gap-2' : 'items-center justify-between'} w-full`}>
-            {/* Row 1: Title + Search */}
-            <div className={`flex items-center justify-between ${isMobile && !isLandscape ? 'w-full' : 'flex-1'} gap-3 z-20`}>
-              <motion.div
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="inline-flex items-center justify-center p-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-full text-blue-600 dark:text-blue-400 shrink-0"
-              >
-                {getIcon()}
-                <span className="text-[10px] font-semibold uppercase tracking-wider ml-1">
-                  National {type.charAt(0).toUpperCase() + type.slice(1)}
-                </span>
-              </motion.div>
-
+            {/* Left Section (Desktop/Landscape) or Row 1 (Mobile Portrait) */}
+            <div className={`flex items-center ${isMobile && !isLandscape ? 'justify-between w-full' : 'flex-1 gap-3'} z-20`}>
               <div className="flex items-center gap-2">
+                <motion.div
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="inline-flex items-center justify-center p-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-full text-blue-600 dark:text-blue-400 shrink-0"
+                >
+                  {getIcon()}
+                  <span className="text-[10px] font-semibold uppercase tracking-wider ml-1">
+                    National {type.charAt(0).toUpperCase() + type.slice(1)}
+                  </span>
+                </motion.div>
+
                 <SearchInput 
                   compact 
                   searchQuery={searchQuery} 
                   setSearchQuery={setSearchQuery} 
                   setCurrentPage={setCurrentPage} 
                 />
-                {filterItem && (
-                  <div className="flex items-center gap-1.5 px-2 py-1 bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800 rounded-lg animate-in fade-in slide-in-from-left-2 z-30">
-                    <span className="text-[10px] font-black text-blue-700 dark:text-blue-300 uppercase tracking-tight">
-                      {filterItem}
-                    </span>
-                    <button
-                      onClick={(e) => clearFilter(e)}
-                      className="p-0.5 hover:bg-blue-200 dark:hover:bg-blue-800 rounded-md transition-colors cursor-pointer relative z-40"
-                    >
-                      <Trash2 className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400" />
-                    </button>
-                  </div>
-                )}
               </div>
+
+              {filterItem && (
+                <div className="flex items-center gap-1.5 px-2 py-1 bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800 rounded-lg animate-in fade-in slide-in-from-left-2 z-30">
+                  <span className="text-[10px] font-black text-blue-700 dark:text-blue-300 uppercase tracking-tight">
+                    {filterItem}
+                  </span>
+                  <button
+                    onClick={(e) => clearFilter(e)}
+                    className="p-0.5 hover:bg-blue-200 dark:hover:bg-blue-800 rounded-md transition-colors cursor-pointer relative z-40"
+                  >
+                    <Trash2 className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400" />
+                  </button>
+                </div>
+              )}
             </div>
 
-            {/* Row 2 (Mobile) or Middle/Right (Desktop) */}
-            <div className={`flex items-center justify-between ${isMobile && !isLandscape ? 'w-full' : 'flex-1 gap-4'}`}>
-              {/* Center: Toggle */}
-              <div className="flex-1 flex items-center justify-center z-10">
-                {/* ALL / A-Z Toggle */}
-                <div 
-                  onClick={toggleMode}
-                  className="flex items-center bg-gray-100 dark:bg-gray-800/50 rounded-full p-1 relative w-24 md:w-28 h-7 md:h-8 cursor-pointer select-none border border-gray-200/50 dark:border-gray-700/50"
-                >
-                  <motion.div 
-                    className="absolute top-1 bottom-1 w-[calc(50%-4px)] bg-blue-600 rounded-full shadow-sm"
-                    animate={{ x: isAlphabetMode ? '100%' : '0%' }}
-                    transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                  />
-                  <span className={`flex-1 text-center text-[9px] md:text-[10px] font-black z-10 transition-colors duration-200 ${!isAlphabetMode ? 'text-white' : 'text-gray-500 dark:text-gray-400'}`}>ALL</span>
-                  <span className={`flex-1 text-center text-[9px] md:text-[10px] font-black z-10 transition-colors duration-200 ${isAlphabetMode ? 'text-white' : 'text-gray-500 dark:text-gray-400'}`}>A-Z</span>
+            {/* Center & Right Section (Desktop/Landscape) or Row 2 (Mobile Portrait) */}
+            {isMobile && !isLandscape ? (
+              <div className="flex items-center justify-between w-full gap-4">
+                {/* Toggle at beginning for mobile portrait */}
+                <div className="flex-none z-10">
+                  <div 
+                    onClick={toggleMode}
+                    className="flex items-center bg-gray-100 dark:bg-gray-800/50 rounded-full p-1 relative w-24 md:w-28 h-7 md:h-8 cursor-pointer select-none border border-gray-200/50 dark:border-gray-700/50"
+                  >
+                    <motion.div 
+                      className="absolute top-1 bottom-1 w-[calc(50%-4px)] bg-blue-600 rounded-full shadow-sm"
+                      animate={{ x: isAlphabetMode ? '100%' : '0%' }}
+                      transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                    />
+                    <span className={`flex-1 text-center text-[9px] md:text-[10px] font-black z-10 transition-colors duration-200 ${!isAlphabetMode ? 'text-white' : 'text-gray-500 dark:text-gray-400'}`}>ALL</span>
+                    <span className={`flex-1 text-center text-[9px] md:text-[10px] font-black z-10 transition-colors duration-200 ${isAlphabetMode ? 'text-white' : 'text-gray-500 dark:text-gray-400'}`}>A-Z</span>
+                  </div>
+                </div>
+
+                {/* Pagination at end */}
+                <div className="flex-1 flex items-center justify-end gap-2 z-10">
+                  <motion.div
+                    initial={{ opacity: 0, x: 10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="flex items-center gap-2"
+                  >
+                    <PaginationControls />
+                    <div className="flex items-center justify-center shrink-0 bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded-lg border border-blue-100 dark:border-blue-900/30">
+                      <span className="text-[10px] md:text-xs font-black text-blue-700 dark:text-blue-300 leading-none">
+                        {selectedLetter === "ALL" 
+                          ? `${(currentPage - 1) * itemsPerPage + 1}-${Math.min(currentPage * itemsPerPage, filteredCountries.length)} of ${baseFilteredCountries.length}`
+                          : `${filteredCountries.length} of ${baseFilteredCountries.length}`
+                        }
+                      </span>
+                    </div>
+                  </motion.div>
                 </div>
               </div>
-
-              {/* Right: Navigation + Actions */}
-              <div className="flex-1 flex items-center justify-end gap-2 z-10">
-                <motion.div
-                  initial={{ opacity: 0, x: 10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.2 }}
-                  className="flex items-center gap-2"
-                >
-                  <PaginationControls />
-
-                  <div className="flex items-center justify-center shrink-0 bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded-lg border border-blue-100 dark:border-blue-900/30">
-                    <span className="text-[10px] md:text-xs font-black text-blue-700 dark:text-blue-300 leading-none">
-                      {selectedLetter === "ALL" 
-                        ? `${(currentPage - 1) * itemsPerPage + 1}-${Math.min(currentPage * itemsPerPage, filteredCountries.length)} of ${baseFilteredCountries.length}`
-                        : `${filteredCountries.length} of ${baseFilteredCountries.length}`
-                      }
-                    </span>
-                  </div>
-
-                  <label className="relative cursor-pointer group">
-                    <input
-                      type="file"
-                      multiple
-                      accept="image/*"
-                      onChange={handleFileUpload}
-                      className="hidden"
+            ) : (
+              <>
+                {/* Center: Toggle for Desktop/Landscape */}
+                <div className="flex-1 flex items-center justify-center z-10">
+                  <div 
+                    onClick={toggleMode}
+                    className="flex items-center bg-gray-100 dark:bg-gray-800/50 rounded-full p-1 relative w-24 md:w-28 h-7 md:h-8 cursor-pointer select-none border border-gray-200/50 dark:border-gray-700/50"
+                  >
+                    <motion.div 
+                      className="absolute top-1 bottom-1 w-[calc(50%-4px)] bg-blue-600 rounded-full shadow-sm"
+                      animate={{ x: isMobile ? (isAlphabetMode ? '100%' : '0%') : (isAlphabetMode ? '0%' : '100%') }}
+                      transition={{ type: "spring", stiffness: 500, damping: 30 }}
                     />
-                    <div className="flex items-center justify-center px-3 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-md hover:bg-blue-700 transition-all active:scale-95">
-                      {uploading ? (
-                        <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                      ) : (
-                        <Upload className="w-3.5 h-3.5 mr-1.5" />
-                      )}
-                      {uploading ? "..." : `Upload`}
-                    </div>
-                  </label>
-
-                  <div className="flex items-center gap-1.5 px-2 py-1 bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-800 rounded-lg">
-                    <ImageIcon className="w-3 h-3 text-blue-500" />
-                    <span className="text-[10px] font-bold text-gray-600 dark:text-gray-400">
-                      {Object.keys(images).length}
-                    </span>
+                    {isMobile ? (
+                      <>
+                        <span className={`flex-1 text-center text-[9px] md:text-[10px] font-black z-10 transition-colors duration-200 ${!isAlphabetMode ? 'text-white' : 'text-gray-500 dark:text-gray-400'}`}>ALL</span>
+                        <span className={`flex-1 text-center text-[9px] md:text-[10px] font-black z-10 transition-colors duration-200 ${isAlphabetMode ? 'text-white' : 'text-gray-500 dark:text-gray-400'}`}>A-Z</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className={`flex-1 text-center text-[9px] md:text-[10px] font-black z-10 transition-colors duration-200 ${isAlphabetMode ? 'text-white' : 'text-gray-500 dark:text-gray-400'}`}>A-Z</span>
+                        <span className={`flex-1 text-center text-[9px] md:text-[10px] font-black z-10 transition-colors duration-200 ${!isAlphabetMode ? 'text-white' : 'text-gray-500 dark:text-gray-400'}`}>ALL</span>
+                      </>
+                    )}
                   </div>
-                  
-                  {Object.keys(images).length > 0 && (
-                    <button
-                      onClick={clearAll}
-                      className="flex items-center justify-center px-3 py-1.5 bg-white dark:bg-[#1a1d23] text-red-500 border border-red-100 dark:border-red-900/30 rounded-xl text-xs font-bold hover:bg-red-50 dark:hover:bg-red-900/10 transition-all active:scale-95"
-                    >
-                      <Trash2 className="w-3.5 h-3.5 mr-1.5" />
-                      Clear
-                    </button>
-                  )}
-                </motion.div>
-              </div>
-            </div>
+                </div>
+
+                {/* Right: Pagination for Desktop/Landscape */}
+                <div className="flex-1 flex items-center justify-end gap-2 z-10">
+                  <motion.div
+                    initial={{ opacity: 0, x: 10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="flex items-center gap-2"
+                  >
+                    <PaginationControls />
+                    <div className="flex items-center justify-center shrink-0 bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded-lg border border-blue-100 dark:border-blue-900/30">
+                      <span className="text-[10px] md:text-xs font-black text-blue-700 dark:text-blue-300 leading-none">
+                        {selectedLetter === "ALL" 
+                          ? `${(currentPage - 1) * itemsPerPage + 1}-${Math.min(currentPage * itemsPerPage, filteredCountries.length)} of ${baseFilteredCountries.length}`
+                          : `${filteredCountries.length} of ${baseFilteredCountries.length}`
+                        }
+                      </span>
+                    </div>
+                  </motion.div>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="flex flex-col gap-2">
@@ -1009,6 +880,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
                         setSelectedLetter(letter);
                         setSearchQuery("");
                         setCurrentPage(1);
+                        setFilterItem(null);
                       }}
                       className={`${isMobile && isLandscape ? 'w-5 h-5 text-[8px]' : 'w-6 h-6 md:w-7 md:h-7 text-[9px] md:text-[10px]'} rounded-md font-bold transition-all flex items-center justify-center ${getLetterStyles(letter)}`}
                     >
@@ -1022,7 +894,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
         </div>
       </header>
 
-      <main ref={galleryRef} className={`flex-grow max-w-7xl mx-auto ${isMobile ? 'px-1' : 'px-4'} w-full pb-2`}>
+      <main ref={galleryRef} className={`flex-grow mx-auto w-full pb-2 ${isSpecialSGrid ? 'max-w-[1400px] px-2' : (isMobile ? 'max-w-7xl px-1' : 'max-w-7xl px-4')}`}>
         {fetchError && (
           <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/30 rounded-xl flex items-center gap-3 text-red-600 dark:text-red-400 animate-in fade-in slide-in-from-top-2">
             <AlertCircle className="w-5 h-5 shrink-0" />
@@ -1061,7 +933,7 @@ export default function GalleryPage({ type }: GalleryPageProps) {
             style={getGridConfig().style}
           >
           <AnimatePresence mode="popLayout">
-            {paginatedCountries.map((country) => (
+            {paginatedCountries.map((country, index) => (
             <motion.div
               key={country.name}
               layout
@@ -1078,39 +950,21 @@ export default function GalleryPage({ type }: GalleryPageProps) {
             >
               <div className={`relative ${type === 'flags' ? 'aspect-video' : 'aspect-square'} bg-gray-50 dark:bg-gray-900/50 flex items-center justify-center overflow-hidden`}>
                 <AnimatePresence mode="wait">
-                  {images[country.name] ? (
-                    <motion.div key="image" className="relative w-full h-full">
-                      <motion.img
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        src={images[country.name]}
-                        alt={`${country.name} ${type.slice(0, -1)}`}
-                        className={`w-full h-full ${type === 'currencies' ? 'object-contain p-2' : 'object-cover'}`}
-                      />
-                      <div className="absolute top-1.5 right-1.5 flex gap-1">
-                        <button
-                          onClick={() => removeImage(country.name)}
-                          className="p-1 bg-white/90 dark:bg-black/50 backdrop-blur shadow-sm rounded-md text-red-500 hover:bg-red-500 hover:text-white transition-all"
-                        >
-                          <Trash2 className="w-2.5 h-2.5" />
-                        </button>
-                      </div>
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key="placeholder"
+                  <motion.div key="image" className="relative w-full h-full">
+                    <MotionHeritageImage
+                      layoutId={`img-${country.name}`}
+                      category={type}
+                      countryName={country.name}
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
-                      className="flex flex-col items-center text-gray-300 dark:text-gray-700 p-2 text-center"
-                    >
-                      <ImageIcon className={`${selectedLetter !== "ALL" ? 'w-6 h-6' : 'w-12 h-12'} mb-1 opacity-10`} />
-                      <p className={`${selectedLetter !== "ALL" ? 'text-[7px]' : 'text-[10px]'} font-medium text-gray-400 dark:text-gray-600 uppercase tracking-widest leading-relaxed`}>
-                        No {type === 'currencies' ? 'Currency' : type.slice(0, -1)}
-                      </p>
-                    </motion.div>
-                  )}
+                      loading={index < 8 ? "eager" : "lazy"}
+                      decoding="async"
+                      // @ts-ignore
+                      fetchPriority={index < 4 ? "high" : "auto"}
+                      className={`w-full h-full ${type === 'currencies' ? 'object-contain' : 'object-cover'}`}
+                    />
+                  </motion.div>
                 </AnimatePresence>
               </div>
 
@@ -1163,6 +1017,16 @@ export default function GalleryPage({ type }: GalleryPageProps) {
                               <span className="text-emerald-600 dark:text-emerald-400 font-black text-[10px] md:text-[13px] bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0.5 rounded-md border border-emerald-100 dark:border-emerald-900/30 shadow-sm">
                                 {currencyDetails[item].symbol}
                               </span>
+                              {country.name === 'Panama' && (
+                                <div className="text-[8px] md:text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-tight flex items-center">
+                                  Panamanian Balboa
+                                </div>
+                              )}
+                              {country.name === 'Tuvalu' && (
+                                <div className="text-[8px] md:text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-tight flex items-center">
+                                  Tuvalu Dollar
+                                </div>
+                              )}
                               <span className="text-amber-600 dark:text-amber-400 font-black text-[10px] md:text-[13px] bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-md border border-amber-100 dark:border-amber-900/30 shadow-sm">
                                 {currencyDetails[item].code}
                               </span>
@@ -1203,19 +1067,12 @@ export default function GalleryPage({ type }: GalleryPageProps) {
                 if (!targetCountry) return null;
                 return (
                   <>
-                    <div className={`relative ${isMobile && isLandscape ? 'w-1/3 aspect-square' : (type === 'flags' ? 'aspect-video' : 'aspect-square')} bg-gray-50 dark:bg-gray-900/50 flex items-center justify-center overflow-hidden`}>
-                      {images[targetCountry] ? (
-                        <img
-                          src={images[targetCountry]}
-                          alt={targetCountry}
-                          className={`w-full h-full ${type === 'currencies' ? 'object-contain p-4' : 'object-cover'}`}
-                        />
-                      ) : (
-                        <div className="flex flex-col items-center text-gray-300 dark:text-gray-700">
-                          <ImageIcon className="w-12 h-12 mb-2 opacity-10" />
-                          <span className="text-xs font-bold uppercase tracking-widest">No Image</span>
-                        </div>
-                      )}
+                    <div className={`relative ${isMobile && isLandscape ? 'w-1/3 aspect-square' : (type === 'flags' || type === 'currencies' ? 'aspect-square' : 'aspect-video')} bg-gray-50 dark:bg-gray-900/50 flex items-center justify-center overflow-hidden`}>
+                      <HeritageImage
+                        category={type}
+                        countryName={targetCountry}
+                        className={`w-full h-full ${type === 'currencies' || type === 'flags' ? 'object-contain' : 'object-cover'}`}
+                      />
                     </div>
                     <div className={`p-4 flex flex-col items-center text-center ${isMobile && isLandscape ? 'w-2/3 justify-center' : ''}`}>
                       <p className={`${isMobile && isLandscape ? 'text-2xl' : 'text-lg'} font-black text-gray-800 dark:text-gray-100 mb-1`}>
@@ -1238,6 +1095,16 @@ export default function GalleryPage({ type }: GalleryPageProps) {
                                     <span className={`${isMobile && isLandscape ? 'text-lg px-4 py-1.5' : 'text-sm px-3 py-1'} text-emerald-600 dark:text-emerald-400 font-black bg-emerald-50 dark:bg-emerald-900/20 rounded-md border border-emerald-100 dark:border-emerald-900/30 shadow-sm`}>
                                       {currencyDetails[item].symbol}
                                     </span>
+                                    {country.name === 'Panama' && (
+                                      <div className={`${isMobile && isLandscape ? 'text-base' : 'text-xs'} font-black text-blue-600 dark:text-blue-400 uppercase tracking-tight flex items-center`}>
+                                        Panamanian Balboa
+                                      </div>
+                                    )}
+                                    {country.name === 'Tuvalu' && (
+                                      <div className={`${isMobile && isLandscape ? 'text-base' : 'text-xs'} font-black text-blue-600 dark:text-blue-400 uppercase tracking-tight flex items-center`}>
+                                        Tuvalu Dollar
+                                      </div>
+                                    )}
                                     <span className={`${isMobile && isLandscape ? 'text-lg px-4 py-1.5' : 'text-sm px-3 py-1'} text-amber-600 dark:text-amber-400 font-black bg-amber-50 dark:bg-amber-900/20 rounded-md border border-amber-100 dark:border-amber-900/30 shadow-sm`}>
                                       {currencyDetails[item].code}
                                     </span>
