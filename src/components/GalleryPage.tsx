@@ -1027,6 +1027,16 @@ export default function GalleryPage({ type }: GalleryPageProps) {
                                   Tuvalu Dollar
                                 </div>
                               )}
+                              {country.name === 'Ecuador' && (
+                                <div className="text-[8px] md:text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-tight flex items-center">
+                                  Ecuadorian Centavo
+                                </div>
+                              )}
+                              {country.name === 'Timor-Leste' && (
+                                <div className="text-[8px] md:text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-tight flex items-center">
+                                  Timor-Leste Centavo
+                                </div>
+                              )}
                               <span className="text-amber-600 dark:text-amber-400 font-black text-[10px] md:text-[13px] bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-md border border-amber-100 dark:border-amber-900/30 shadow-sm">
                                 {currencyDetails[item].code}
                               </span>
@@ -1103,6 +1113,16 @@ export default function GalleryPage({ type }: GalleryPageProps) {
                                     {country.name === 'Tuvalu' && (
                                       <div className={`${isMobile && isLandscape ? 'text-base' : 'text-xs'} font-black text-blue-600 dark:text-blue-400 uppercase tracking-tight flex items-center`}>
                                         Tuvalu Dollar
+                                      </div>
+                                    )}
+                                    {country.name === 'Ecuador' && (
+                                      <div className={`${isMobile && isLandscape ? 'text-base' : 'text-xs'} font-black text-blue-600 dark:text-blue-400 uppercase tracking-tight flex items-center`}>
+                                        Ecuadorian Centavo
+                                      </div>
+                                    )}
+                                    {country.name === 'Timor-Leste' && (
+                                      <div className={`${isMobile && isLandscape ? 'text-base' : 'text-xs'} font-black text-blue-600 dark:text-blue-400 uppercase tracking-tight flex items-center`}>
+                                        Timor-Leste Centavo
                                       </div>
                                     )}
                                     <span className={`${isMobile && isLandscape ? 'text-lg px-4 py-1.5' : 'text-sm px-3 py-1'} text-amber-600 dark:text-amber-400 font-black bg-amber-50 dark:bg-amber-900/20 rounded-md border border-amber-100 dark:border-amber-900/30 shadow-sm`}>

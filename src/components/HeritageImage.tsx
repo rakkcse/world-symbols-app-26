@@ -17,9 +17,14 @@ export const HeritageImage = forwardRef<HTMLImageElement, HeritageImageProps>(({
 }, ref) => {
   const [extIndex, setExtIndex] = useState(0);
   const [failed, setFailed] = useState(false);
-  const [currentSrc, setCurrentSrc] = useState<string>(() => 
-    (category && countryName) ? getAssetUrl(category, countryName, getExtensionsForCategory(category)[0]) : ''
-  );
+  const [currentSrc, setCurrentSrc] = useState<string>(() => {
+    const url = (category && countryName) ? getAssetUrl(category, countryName, getExtensionsForCategory(category)[0]) : '';
+    if (!localStorage.getItem('appLoaded')) {
+      localStorage.setItem('appLoaded', 'true');
+      return `${url}?t=${Date.now()}`;
+    }
+    return url;
+  });
 
   useEffect(() => {
     if (!category || !countryName) return;
