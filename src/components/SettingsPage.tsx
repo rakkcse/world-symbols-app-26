@@ -34,20 +34,20 @@ export default function SettingsPage() {
   }, [navigate]);
 
   return (
-    <div className="min-h-screen p-6 md:p-8 max-w-2xl mx-auto">
-      <header className="flex items-center mb-8">
+    <div className="min-h-screen p-4 md:p-6 max-w-2xl mx-auto flex flex-col">
+      <header className="flex items-center mb-4">
         <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3">
           <Settings className="w-8 h-8 text-blue-500" />
           Settings
         </h1>
       </header>
 
-      <div className="space-y-6">
+      <div className="grid grid-cols-1 landscape:grid-cols-2 md:landscape:grid-cols-1 gap-3">
         {/* Theme Toggle */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white dark:bg-[#1a1d23] p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center justify-between"
+          className="bg-white dark:bg-[#1a1d23] p-4 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center justify-between"
         >
           <div>
             <h2 className="text-lg font-bold mb-1">Appearance</h2>
@@ -67,7 +67,7 @@ export default function SettingsPage() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="bg-white dark:bg-[#1a1d23] p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center justify-between"
+          className="bg-white dark:bg-[#1a1d23] p-4 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center justify-between"
         >
           <div>
             <h2 className="text-lg font-bold mb-1">Sound Effects</h2>
@@ -91,7 +91,7 @@ export default function SettingsPage() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.15 }}
-          className="bg-white dark:bg-[#1a1d23] p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center justify-between"
+          className="bg-white dark:bg-[#1a1d23] p-4 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center justify-between"
         >
           <div>
             <h2 className="text-lg font-bold mb-1">Voice Narration</h2>
@@ -115,7 +115,7 @@ export default function SettingsPage() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          className="bg-white dark:bg-[#1a1d23] p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center justify-between"
+          className="bg-white dark:bg-[#1a1d23] p-4 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center justify-between"
         >
           <div>
             <h2 className="text-lg font-bold mb-1">Auto-Scroll</h2>
@@ -152,6 +152,19 @@ export default function SettingsPage() {
           </div>
         </motion.div>
       </div>
+
+      <motion.footer
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.3 }}
+        className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-800 text-gray-400 dark:text-gray-500"
+      >
+        <h2 className="text-[10px] font-bold uppercase tracking-widest mb-3">About</h2>
+        <div className="space-y-1.5 text-[11px] leading-relaxed">
+          <p><span className="text-gray-500 dark:text-gray-400 font-bold uppercase text-[9px]">Author:</span> RAK</p>
+          <p><span className="text-gray-500 dark:text-gray-400 font-bold uppercase text-[9px]">Assets:</span> Flags are AI-generated, currencies via BankNoteWorld, and other imagery from open-source sites.</p>
+        </div>
+      </motion.footer>
     </div>
   );
 }
