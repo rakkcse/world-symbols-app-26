@@ -1,0 +1,15 @@
+{
+  "id": "com.heritage.gallery.app",
+  "version": "1.0.0",
+  "vendor": "Heritage Explorer",
+  "type": "web",
+  "main": "index.html",
+  "title": "World Heritage Gallery",
+  "icon": "public/globe-icon.svg",
+  "largeIcon": "public/globe-icon.svg",
+  "appDescription": "A gallery of countries symbols for TV",
+  "resolution": "1920x1080",
+  "transparent": false,
+  "bgColor": "#0f1115",
+  "iconColor": "#2563eb"
+}
