@@ -17,22 +17,26 @@ export const HeritageImage = forwardRef<HTMLImageElement, HeritageImageProps>(({
 }, ref) => {
   const [extIndex, setExtIndex] = useState(0);
   const [failed, setFailed] = useState(false);
-  const [currentSrc, setCurrentSrc] = useState<string>(() => {
-    const url = (category && countryName) ? getAssetUrl(category, countryName, getExtensionsForCategory(category)[0]) : '';
-    if (!localStorage.getItem('appLoaded')) {
-      localStorage.setItem('appLoaded', 'true');
-      return `${url}?t=${Date.now()}`;
-    }
-    return url;
-  });
+  const [currentSrc, setCurrentSrc] = useState<string>(() => 
+    (category && countryName) ? getAssetUrl(category, countryName, getExtensionsForCategory(category)[0]) : ''
+  );
 
   useEffect(() => {
     if (!category || !countryName) return;
     const extensions = getExtensionsForCategory(category);
-    // Reset when country or category changes
-    setExtIndex(0);
-    setFailed(false);
-    setCurrentSrc(getAssetUrl(category, countryName, extensions[0]));
+    
+    const updateSrc = () => {
+      setFailed(false);
+      setExtIndex(0);
+      setCurrentSrc(getAssetUrl(category, countryName, extensions[0]));
+    };
+
+    // Initial update
+    updateSrc();
+
+    // Listen for manifest updates to refresh the URL if it changed
+    window.addEventListener('assets-manifest-updated', updateSrc);
+    return () => window.removeEventListener('assets-manifest-updated', updateSrc);
   }, [category, countryName]);
 
   const handleError = () => {

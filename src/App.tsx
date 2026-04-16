@@ -14,6 +14,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import BackgroundPattern from "./components/BackgroundPattern";
 import GlobalControls from "./components/GlobalControls";
 import NavigationLayout from "./components/NavigationLayout";
+import { fetchManifest } from "./lib/manifest";
 
 export default function App() {
   const [isMobile, setIsMobile] = useState(false);
@@ -22,6 +23,10 @@ export default function App() {
     const checkMobile = () => setIsMobile(window.innerWidth <= 1280);
     checkMobile();
     window.addEventListener('resize', checkMobile);
+    
+    // Fetch manifest on startup
+    fetchManifest();
+    
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
